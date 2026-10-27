@@ -1,0 +1,26 @@
+# Claude Code
+.claude/
+
+# Graphify
+graphify-out/
+
+# Xcode user-specific data (schemes, breakpoints, window state)
+xcuserdata/
+*.xcuserstate
+
+# Xcode build output
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
