@@ -28,6 +28,8 @@ struct lf_pty {
     int kq;
     pid_t pid;
     int exit_seen;   /* NOTE_EXIT observed */
+    int eof_seen;    /* lf_pty_read returned 0 (EOF/EIO) */
+    int read_unwatched; /* EVFILT_READ deleted after EOF */
     int reaped;
     int status;
 };
@@ -248,7 +250,8 @@ long lf_pty_read(lf_pty *p, void *buf, size_t cap) {
     if (cap == 0) return 0;
     ssize_t n;
     do { n = read(p->master, buf, cap); } while (n < 0 && errno == EINTR);
-    if (n < 0 && errno == EIO) return 0;
+    if (n < 0 && errno == EIO) n = 0;
+    if (n == 0) p->eof_seen = 1;
     return (long)n;
 }
 
@@ -276,6 +279,13 @@ int lf_pty_wait_event(lf_pty *p, int timeout_ms) {
         ts.tv_sec = timeout_ms / 1000;
         ts.tv_nsec = (long)(timeout_ms % 1000) * 1000000L;
         tsp = &ts;
+    }
+    if (p->eof_seen && !p->read_unwatched) {
+        /* EOF is level-triggered: stop watching READ so later calls only report exit or time out. */
+        struct kevent del;
+        EV_SET(&del, (uintptr_t)p->master, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+        (void)kevent(p->kq, &del, 1, NULL, 0, NULL);
+        p->read_unwatched = 1;
     }
     struct kevent ev[2];
     int n;

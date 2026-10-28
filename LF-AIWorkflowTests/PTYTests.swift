@@ -163,6 +163,28 @@ struct PTYTests {
         #expect(Int(lf_pty_wait_event(p, 0)) & Int(LF_PTY_EXITED) != 0)  // sticky
     }
 
+    @Test func waitEventAfterEOFDoesNotSpin() throws {
+        // On macOS the pty master only reports EOF once the child (session leader) is gone,
+        // so EOF and exit coincide; the level-triggered READ filter must still not be reported again.
+        let p = try #require(spawn(["/bin/sh", "-c", "exit 0"]))
+        defer { lf_pty_destroy(p) }
+        _ = readAll(p)
+        var mask = 0
+        var calls = 0
+        let deadline = ContinuousClock.now + .seconds(5)
+        while mask & Int(LF_PTY_EXITED) == 0 && ContinuousClock.now < deadline {
+            let r = Int(lf_pty_wait_event(p, 100))
+            calls += 1
+            #expect(r >= 0)
+            if r < 0 { break }
+            #expect(r & Int(LF_PTY_READABLE) == 0)
+            mask |= r
+        }
+        #expect(mask & Int(LF_PTY_EXITED) != 0)
+        #expect(Int(lf_pty_wait_event(p, 100)) == Int(LF_PTY_EXITED))  // sticky, and no READABLE
+        #expect(calls < 10)
+    }
+
     private func expectNoZombie(_ pid: Int32) {
         errno = 0
         #expect(waitpid(pid, nil, WNOHANG) == -1 && errno == ECHILD)

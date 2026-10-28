@@ -44,7 +44,8 @@ long lf_pty_read(lf_pty *p, void *buf, size_t cap);
 int lf_pty_send_eof(lf_pty *p);
 
 /// Waits via kqueue for output and/or child exit. Returns an LF_PTY_* mask, 0 on timeout,
-/// -1 on error. timeout_ms < 0 waits forever.
+/// -1 on error. timeout_ms < 0 waits forever. After EOF (lf_pty_read returned 0) only
+/// LF_PTY_EXITED is reported; further calls time out until the child exits.
 /// Complexity: O(1) time, O(1) space; no busy wait
 int lf_pty_wait_event(lf_pty *p, int timeout_ms);
 
