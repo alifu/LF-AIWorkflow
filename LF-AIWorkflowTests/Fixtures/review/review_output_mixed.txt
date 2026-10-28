@@ -1,0 +1,11 @@
+Review summary follows.
+
+- [LOW] Sources/b.swift:40 - naming is unclear - rename to `count`
+1. [CRITICAL] Sources/a.swift:10 - force unwrap crashes on nil - use guard let
+* [high] `Sources/My File.swift`:7 — missing error handling — propagate the error
+[MEDIUM] Sources/a.swift:3 - long function
+[MED] Sources/a.swift:3 - second issue at same spot - split it
+[INFO] README.md - docs could mention setup
+[BLOCKER] Sources/z.swift:1 - not a known severity - n/a
+[HIGH] Sources/a.swift:20 - race condition - add lock
+Overall the change looks reasonable.

@@ -11,6 +11,9 @@ nonisolated struct TokenUsage: Sendable, Equatable {
 
     static let zero = TokenUsage(input: 0, output: 0, cacheRead: 0, cacheCreation: 0)
 
+    /// Tokens that count against a task budget: input + output + cache creation (cache reads excluded).
+    var billableTotal: Int { input + output + cacheCreation }
+
     /// Per-field maximum (usage lines for one message are cumulative).
     func maxing(_ other: TokenUsage) -> TokenUsage {
         TokenUsage(input: max(input, other.input), output: max(output, other.output),
