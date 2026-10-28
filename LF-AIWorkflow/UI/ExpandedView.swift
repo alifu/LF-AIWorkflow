@@ -12,25 +12,30 @@ struct ExpandedView: View {
     let router: PanelRouter
     /// Space the notch (or menu bar) takes at the top of the panel.
     let topInset: CGFloat
+    @Environment(\.appTheme) private var theme
+    @Environment(SettingsStore.self) private var settings: SettingsStore?
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(.white.opacity(0.1))
+            Divider().overlay(palette.divider.color)
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider().overlay(.white.opacity(0.1))
+            Divider().overlay(palette.divider.color)
             footer
         }
+        .clipShape(NotchShape(bottomRadius: theme.panelCornerRadius))
         .padding(.top, topInset)
-        .background(NotchShape(bottomRadius: 24).fill(.black))
-        .clipShape(NotchShape(bottomRadius: 24))
-        .environment(\.colorScheme, .dark)
+        .padding([.horizontal, .bottom], theme.panelInset)
+        .background { PanelChrome(bottomRadius: theme.panelCornerRadius) }
+        .accessibilityAction(.escape) { _ = hover.escapePressed(isComposingText: false) }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            MascotPlaceholder(pose: MascotPose.pose(for: model.summary), size: 24)
-            Text("LF-AIWorkflow").font(.system(size: 13, weight: .semibold))
+            MascotView(pose: MascotPose.pose(for: model.summary), size: 24)
+            Text("LF-AIWorkflow").font(theme.headingFont.font)
             Picker("View", selection: Bindable(router).tab) {
                 ForEach(ExpandedTab.allCases) { Text($0.title).tag($0) }
             }
@@ -40,7 +45,7 @@ struct ExpandedView: View {
             .accessibilityLabel("Panel view")
             Spacer()
             Text("\(model.summary.activeCount) active")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
             Toggle(isOn: pinBinding) { Image(systemName: hover.state == .pinned ? "pin.fill" : "pin") }
                 .toggleStyle(.button)
                 .controlSize(.small)
@@ -72,13 +77,16 @@ struct ExpandedView: View {
         HStack {
             if let error = model.lastError {
                 Button { model.clearError() } label: {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle.fill").font(theme.bodyFont.font).foregroundStyle(palette.failure.color)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Dismisses the message")
+            } else if let notice = settings?.hotkeyNotice {
+                Label(notice, systemImage: "keyboard.badge.ellipsis").font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
+                    .accessibilityLabel(notice)
             } else {
                 Text("Today: \(TaskFormat.tokens(model.todayTokens)) tokens")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
             }
             Spacer()
             Button("Clear done") { model.clearDone() }

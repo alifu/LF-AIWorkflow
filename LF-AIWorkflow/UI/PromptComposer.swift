@@ -14,19 +14,22 @@ struct PromptComposer: View {
     @FocusState private var promptFocused: Bool
     @State private var isDropTargeted = false
     @State private var isPicking = false
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     private var composer: ComposerViewModel { router.composer }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text("What should Claude build?").font(.system(size: 12, weight: .semibold))
+                Text("What should Claude build?").font(theme.subheadingFont.font)
                 TextEditor(text: Bindable(composer).prompt)
-                    .font(.system(size: 12))
+                    .font(theme.bodyLargeFont.font)
                     .scrollContentBackground(.hidden)
                     .padding(6)
                     .frame(minHeight: 70, maxHeight: 110)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.08)))
+                    .themedSurface(.field)
                     .focused($promptFocused)
                     .accessibilityLabel("Task prompt")
                 projectRow
@@ -51,15 +54,15 @@ struct PromptComposer: View {
         HStack {
             Button("Choose project…") { pick { await composer.chooseProject() } }.controlSize(.small)
             Text(composer.projectRoot?.path ?? "No project chosen")
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color).lineLimit(1).truncationMode(.middle)
         }
     }
 
     private var documentsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Documents").font(.system(size: 11, weight: .semibold))
-                Text(composer.documentLimitText).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Documents").font(theme.emphasisFont.font)
+                Text(composer.documentLimitText).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
                 Spacer()
                 Button("Choose files…") { pick { await composer.pickDocuments() } }.controlSize(.small)
             }
@@ -74,10 +77,10 @@ struct PromptComposer: View {
 
     private var dropZone: some View {
         Text("Drop documents here")
-            .font(.system(size: 11)).foregroundStyle(.secondary)
+            .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
             .frame(maxWidth: .infinity, minHeight: 34)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isDropTargeted ? Color.accentColor : .white.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4])))
+            .background(RoundedRectangle(cornerRadius: theme.smallCornerRadius)
+                .strokeBorder(isDropTargeted ? palette.accent.color : palette.dropBorder.color, style: StrokeStyle(lineWidth: 1, dash: [4])))
             .dropDestination(for: URL.self) { urls, _ in
                 Task { await composer.addDocuments(urls) }
                 return !urls.isEmpty
@@ -91,7 +94,7 @@ struct PromptComposer: View {
         VStack(alignment: .leading, spacing: 4) {
             Label("These files may contain secrets: \(composer.pendingSecrets.map(\.name).joined(separator: ", ")). "
                   + "Claude would be told to read them.", systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 11)).foregroundStyle(.orange)
+                .font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
             HStack {
                 Button("Attach anyway") { composer.confirmSecrets() }
                 Button("Skip them") { composer.discardSecrets() }.keyboardShortcut(.cancelAction)
@@ -99,7 +102,7 @@ struct PromptComposer: View {
             .controlSize(.small)
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(.orange.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: theme.smallCornerRadius).fill(palette.warning.fading(theme.subtleTintOpacity).color))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Secret files warning")
     }
@@ -107,7 +110,7 @@ struct PromptComposer: View {
     private var skillSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Skill folders").font(.system(size: 11, weight: .semibold))
+                Text("Skill folders").font(theme.emphasisFont.font)
                 Spacer()
                 Button("Add skill folder…") { pick { await composer.pickSkillFolder() } }
                     .controlSize(.small)
@@ -126,7 +129,7 @@ struct PromptComposer: View {
         if !composer.notices.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(composer.notices.enumerated()), id: \.offset) { _, text in
-                    Text(text).font(.system(size: 11)).foregroundStyle(.orange)
+                    Text(text).font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
                 }
                 Button("Dismiss") { composer.dismissNotices() }.controlSize(.small)
             }
@@ -144,13 +147,13 @@ struct PromptComposer: View {
             Toggle("Use worktree", isOn: .constant(true)).disabled(true)
                 .help("Set globally for now: per-task choice is not available yet")
         }
-        .font(.system(size: 11)).controlSize(.small)
+        .font(theme.bodyFont.font).controlSize(.small)
     }
 
     private var startRow: some View {
         HStack {
             Text("About \(TaskFormat.tokens(composer.estimatedTokens)) tokens in the first prompt")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
                 .accessibilityLabel("Estimated tokens")
                 .accessibilityValue("\(composer.estimatedTokens)")
             Spacer()
@@ -189,19 +192,22 @@ struct AttachmentChip: View {
     let detail: String?
     let removeLabel: String
     let onRemove: () -> Void
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let palette = theme.palette(for: scheme)
         HStack(spacing: 6) {
-            Image(systemName: "doc").font(.system(size: 10)).accessibilityHidden(true)
-            Text(name).font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
-            if let detail { Text("(\(detail))").font(.system(size: 10)).foregroundStyle(.orange) }
+            Image(systemName: "doc").font(theme.captionFont.font).accessibilityHidden(true)
+            Text(name).font(theme.bodyFont.font).lineLimit(1).truncationMode(.middle)
+            if let detail { Text("(\(detail))").font(theme.captionFont.font).foregroundStyle(palette.warning.color) }
             Spacer()
             Button(action: onRemove) { Image(systemName: "xmark.circle.fill") }
                 .buttonStyle(.plain)
                 .accessibilityLabel(removeLabel)
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.07)))
+        .themedSurface(.tag)
         .accessibilityElement(children: .contain)
     }
 }

@@ -80,10 +80,21 @@ struct TokenEstimateTests {
         let chunk = Array("The quick brown fox, 12345 jumps over {\"lazy\": 日本} dogs.\n".utf8)
         var big = Data(capacity: 10_000_000 + chunk.count)
         while big.count < 10_000_000 { big.append(contentsOf: chunk) }
-        let start = ContinuousClock.now
-        let est = TokenEstimator.estimate(big)
-        let elapsed = ContinuousClock.now - start
+        // Best of three filters out CPU spikes from the hosted app and parallel tests. The bound is looser for
+        // unoptimised Debug builds; an O(n^2) regression would still miss it by orders of magnitude.
+        #if DEBUG
+        let limit = Duration.milliseconds(500)
+        #else
+        let limit = Duration.milliseconds(50)
+        #endif
+        var est = 0
+        var best = Duration.seconds(60)
+        for _ in 0..<3 {
+            let start = ContinuousClock.now
+            est = TokenEstimator.estimate(big)
+            best = min(best, ContinuousClock.now - start)
+        }
         #expect(est > 0)
-        #expect(elapsed < .milliseconds(50), "took \(elapsed)")
+        #expect(best < limit, "best of 3 took \(best), limit \(limit)")
     }
 }

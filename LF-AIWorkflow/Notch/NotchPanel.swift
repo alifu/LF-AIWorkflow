@@ -15,11 +15,29 @@ final class NotchPanel: NSPanel, PanelFraming {
         level = .statusBar
         hasShadow = false
         isOpaque = false
-        backgroundColor = .clear
+        backgroundColor = ThemeColor.clear.nsColor
         isFloatingPanel = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+    }
+
+    /// Called for Esc when the panel is key. Returns true when the key was used (false while an IME composition is active).
+    var onEscape: ((_ isComposingText: Bool) -> Bool)?
+
+    /// Text views send `cancelOperation(_:)` for Esc, but not while an IME composition is active (the IME consumes it).
+    override func cancelOperation(_ sender: Any?) {
+        if onEscape?(isComposingText) != true { super.cancelOperation(sender) }
+    }
+
+    /// Esc reaching the window without a text view (for example focus on a button).
+    override func keyDown(with event: NSEvent) {
+        let escapeKeyCode: UInt16 = 53
+        guard event.keyCode == escapeKeyCode, onEscape?(isComposingText) == true else { return super.keyDown(with: event) }
+    }
+
+    private var isComposingText: Bool {
+        (firstResponder as? NSTextInputClient)?.hasMarkedText() ?? false
     }
 
     override var canBecomeKey: Bool { allowsKey }

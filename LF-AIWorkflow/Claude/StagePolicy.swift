@@ -65,6 +65,19 @@ nonisolated struct StagePolicy: Sendable, Equatable {
                            disallowedTools: denied, maxTurns: base.maxTurns)
     }
 
+    /// New policy with the user's model and turn overrides applied per stage; missing entries keep the table value.
+    /// Complexity: O(s) time, O(s) space (s = stages)
+    func overriding(models: [WorkflowStage: String], maxTurns: [WorkflowStage: Int]) -> StagePolicy {
+        var copy = configs
+        for (stage, base) in configs {
+            copy[stage] = StageConfig(
+                model: models[stage] ?? base.model, escalationModel: base.escalationModel,
+                permissionMode: base.permissionMode, allowedTools: base.allowedTools,
+                disallowedTools: base.disallowedTools, maxTurns: maxTurns[stage] ?? base.maxTurns)
+        }
+        return StagePolicy(configs: copy)
+    }
+
     /// New policy with one stage replaced; the receiver is unchanged.
     func replacing(_ stage: WorkflowStage, with config: StageConfig) -> StagePolicy {
         var copy = configs

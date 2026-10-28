@@ -11,6 +11,9 @@ struct PlanApprovalView: View {
     let hover: HoverController?
     /// Closes the sheet without deciding.
     let onClose: () -> Void
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     init(task: WorkflowTask, decider: any TaskDeciding, hover: HoverController?, loader: any PlanLoading = FilePlanLoader(),
          onClose: @escaping () -> Void) {
@@ -21,14 +24,14 @@ struct PlanApprovalView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Approve plan: \(model.title)").font(.system(size: 14, weight: .semibold)).lineLimit(2)
+            Text("Approve plan: \(model.title)").font(theme.titleFont.font).lineLimit(2)
             if let path = model.planPath {
-                Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                Text(path).font(theme.monoFont.font).foregroundStyle(palette.secondaryText.color)
                     .lineLimit(1).truncationMode(.middle)
             }
             summary
             if let error = model.loadError ?? model.openError {
-                Text(error).font(.system(size: 11)).foregroundStyle(.orange)
+                Text(error).font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
             }
             if let document = model.document { PlanStepsView(steps: document.steps) }
             HStack {
@@ -49,8 +52,8 @@ struct PlanApprovalView: View {
         }
         .padding(14)
         .frame(maxWidth: 480)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.14)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.15)))
+        .themedSurface(.sheet)
+        .overlay(RoundedRectangle(cornerRadius: theme.sheetCornerRadius, style: .continuous).strokeBorder(palette.outline.color))
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityLabel("Plan approval")
@@ -63,7 +66,7 @@ struct PlanApprovalView: View {
         if let document = model.document {
             Text("\(document.steps.count) steps · about \(TaskFormat.tokens(document.estimatedTokens)) tokens"
                  + (document.isTruncated ? " · plan shortened for display" : ""))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
         }
     }
 }

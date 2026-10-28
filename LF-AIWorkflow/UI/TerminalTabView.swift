@@ -11,11 +11,14 @@ struct TerminalTabView: View {
     let lines: [TaskLogLine]
     let onCopy: () -> Void
     var caption = "Live output · read-only"
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(caption).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(caption).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
                 Spacer()
                 Button("Copy", action: onCopy)
                     .controlSize(.small)
@@ -28,7 +31,7 @@ struct TerminalTabView: View {
 
     @ViewBuilder private var logBody: some View {
         if lines.isEmpty {
-            Text("No output yet").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text("No output yet").font(theme.bodyLargeFont.font).foregroundStyle(palette.secondaryText.color)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
@@ -36,7 +39,7 @@ struct TerminalTabView: View {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         ForEach(lines) { line in
                             Text(line.text)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(theme.monoBodyFont.font)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(line.id)
@@ -44,7 +47,7 @@ struct TerminalTabView: View {
                     }
                     .padding(8)
                 }
-                .background(RoundedRectangle(cornerRadius: 8).fill(.black.opacity(0.5)))
+                .themedSurface(.terminal)
                 .onChange(of: lines.last?.id) { _, last in
                     if let last { proxy.scrollTo(last, anchor: .bottom) }
                 }

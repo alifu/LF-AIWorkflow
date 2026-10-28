@@ -81,8 +81,8 @@ final class HoverController {
     // MARK: - Peek
 
     /// Shows the peek bubble from the collapsed state only; never overrides expanded or pinned.
-    func showPeek(for duration: Duration = .seconds(7)) {
-        guard state == .collapsed, !pointerInside else { return }
+    func showPeek(for duration: Duration = .seconds(7), enabled: Bool = true) {
+        guard enabled, state == .collapsed, !pointerInside else { return }
         cancelPeek()
         state = .peek
         peekTask = schedule(after: duration) { controller in
@@ -106,6 +106,41 @@ final class HoverController {
         cancelHover()
         cancelPeek()
         if state == .collapsed || state == .peek { state = .expanded }
+    }
+
+    // MARK: - Dismissal (Esc, click outside)
+
+    /// Closes an expanded panel. Pinned stays open; focus hold does not block (an explicit close).
+    /// Complexity: O(1) time, O(1) space
+    func collapse() {
+        cancelHover()
+        guard state == .expanded else { return }
+        state = .collapsed
+    }
+
+    /// Esc: dismisses a peek, collapses an expanded panel, never touches a pinned one. Ignored while an IME composition is active
+    /// (Esc then cancels the composition). Returns true when the key was used.
+    /// Complexity: O(1) time, O(1) space
+    @discardableResult
+    func escapePressed(isComposingText: Bool) -> Bool {
+        guard !isComposingText else { return false }
+        switch state {
+        case .peek:
+            dismissPeek()
+            return true
+        case .expanded:
+            collapse()
+            return true
+        case .collapsed, .pinned:
+            return false
+        }
+    }
+
+    /// A click outside the panel: collapses unless pinned or a composer/sheet holds focus.
+    /// Complexity: O(1) time, O(1) space
+    func clickedOutside() {
+        guard !isFocusHeld else { return }
+        collapse()
     }
 
     // MARK: - Hotkey

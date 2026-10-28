@@ -3,6 +3,7 @@
 //  LF-AIWorkflowTests
 //
 
+import SwiftUI
 import Testing
 @testable import LF_AIWorkflow
 
@@ -23,4 +24,12 @@ import Testing
         let marks = [StageChip.Status.pending, .active, .done, .failed].map(StageStyle.marker)
         #expect(Set(marks).count == 4 && marks.allSatisfy { !$0.isEmpty })
     }
+
+    @Test func colorComesFromTheThemeForEachScheme() {
+        for step in PipelineStep.allCases {
+            #expect(StageStyle.color(step, theme: .classic, scheme: .dark) == AppTheme.classic.stageColor(step, for: .dark).color)
+            #expect(StageStyle.color(step, theme: .classic, scheme: .light) == AppTheme.classic.stageColor(step, for: .light).color)
+        }
+    }
 }
+

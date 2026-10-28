@@ -25,7 +25,7 @@ extension WorkflowEngine {
     /// Returns nil, after failing the task, when the review diff cannot be produced.
     /// Complexity: O(inputs) time, O(inputs) space
     func buildPrompt(for task: WorkflowTask, stage: WorkflowStage) async -> BuiltPrompt? {
-        let budget = budgets[task.id] ?? settings.budget
+        let budget = budgets[task.id] ?? effectiveSettings(for: task.id).budget
         let root = task.workingDirectory
         var graph = GraphContext.empty
         var diff: String?

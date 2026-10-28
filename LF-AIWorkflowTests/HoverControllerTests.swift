@@ -241,3 +241,94 @@ struct HoverControllerTests {
         #expect(d.state == .expanded)
     }
 }
+
+// MARK: - Esc, click outside, peek setting (Phase 6 step 12, TD-054, TD-005)
+
+@MainActor
+@Suite(.timeLimit(.minutes(1)))
+struct HoverDismissalTests {
+    @Test func keyboardExpandCanBeCollapsedWithEsc() {
+        let c = HoverController()
+        c.expand()
+        #expect(c.state == .expanded)
+        #expect(c.escapePressed(isComposingText: false))
+        #expect(c.state == .collapsed)
+    }
+
+    @Test func escWhileComposingIMETextLeavesThePanelOpen() {
+        let c = HoverController()
+        c.expand()
+        #expect(!c.escapePressed(isComposingText: true))
+        #expect(c.state == .expanded)
+    }
+
+    @Test func escDoesNotCloseAPinnedPanel() {
+        let c = HoverController()
+        c.expand()
+        c.setPinned(true)
+        #expect(!c.escapePressed(isComposingText: false))
+        #expect(c.state == .pinned)
+    }
+
+    @Test func escClosesEvenWhenTheComposerHoldsFocus() {
+        let c = HoverController()
+        c.expand()
+        c.setFocusHold(true)
+        #expect(c.escapePressed(isComposingText: false))
+        #expect(c.state == .collapsed)
+    }
+
+    @Test func escDismissesAPeek() {
+        let c = HoverController()
+        c.showPeek()
+        #expect(c.escapePressed(isComposingText: false))
+        #expect(c.state == .collapsed)
+    }
+
+    @Test func escWhenCollapsedIsNotHandled() {
+        let c = HoverController()
+        #expect(!c.escapePressed(isComposingText: false))
+    }
+
+    @Test func clickOutsideCollapsesAnExpandedPanel() {
+        let c = HoverController()
+        c.expand()
+        c.clickedOutside()
+        #expect(c.state == .collapsed)
+    }
+
+    @Test func clickOutsideIsIgnoredWhenPinned() {
+        let c = HoverController()
+        c.expand()
+        c.setPinned(true)
+        c.clickedOutside()
+        #expect(c.state == .pinned)
+    }
+
+    @Test func clickOutsideIsIgnoredWhileFocusIsHeld() {
+        let c = HoverController()
+        c.expand()
+        c.setFocusHold(true)
+        c.clickedOutside()
+        #expect(c.state == .expanded)
+    }
+
+    @Test func collapseCancelsAPendingHoverExpand() async {
+        let clock = ManualClock()
+        let c = HoverController(clock: clock)
+        c.pointerEntered()
+        await clock.waitForSleepers(1)
+        c.collapse()
+        clock.advance(by: .milliseconds(200))
+        await c.settle()
+        #expect(c.state == .collapsed)
+    }
+
+    @Test func peekDisabledNeverShowsTheBubble() {
+        let c = HoverController()
+        c.showPeek(enabled: false)
+        #expect(c.state == .collapsed)
+        c.showPeek(enabled: true)
+        #expect(c.state == .peek)
+    }
+}

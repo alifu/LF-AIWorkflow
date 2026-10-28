@@ -15,7 +15,10 @@ actor WorkflowEngine {
     private let continuation: AsyncStream<WorkflowTask>.Continuation
 
     let deps: EngineDependencies
-    let settings: EngineSettings
+    /// Settings for tasks submitted from now on. Tasks already submitted keep their copy in `taskSettings`.
+    private(set) var settings: EngineSettings
+    /// Snapshot taken at submit; every stage of that task reads it, so a Settings change never reaches a running task.
+    private var taskSettings: [UUID: EngineSettings] = [:]
     var tasks: [UUID: WorkflowTask] = [:]
     var budgets: [UUID: TokenBudget] = [:]
     var testCommands: [UUID: TestCommand] = [:]
@@ -44,6 +47,7 @@ actor WorkflowEngine {
             resumeState: nil, waitReason: nil, failure: nil, worktree: nil, sessionId: nil, planFile: nil,
             fixAttempts: 0, usageByStage: [:], lastErrors: nil, testCommandDisplay: nil, reviewFile: nil,
             createdAt: Date())
+        taskSettings[task.id] = settings
         publish(task)
         startDriving(task.id)
         return task.id
@@ -53,7 +57,7 @@ actor WorkflowEngine {
     /// Complexity: O(1) time, O(1) space
     func approvePlan(_ id: UUID) throws(WorkflowError) {
         let task = try lookup(id)
-        publish(try TaskTransitions.move(task, to: .code, fixLoopCap: settings.fixLoopCap))
+        publish(try TaskTransitions.move(task, to: .code, fixLoopCap: effectiveSettings(for: id).fixLoopCap))
         startDriving(id)
     }
 
@@ -64,8 +68,8 @@ actor WorkflowEngine {
         guard task.state == .awaitingInput, let target = task.resumeState else {
             throw .illegalTransition(from: task.state, to: task.resumeState ?? .awaitingInput)
         }
-        let moved = try TaskTransitions.move(task, to: target, fixLoopCap: settings.fixLoopCap)
-        if tokens > 0 { budgets[id] = (budgets[id] ?? settings.budget).raising(by: tokens) }
+        let moved = try TaskTransitions.move(task, to: target, fixLoopCap: effectiveSettings(for: id).fixLoopCap)
+        if tokens > 0 { budgets[id] = (budgets[id] ?? effectiveSettings(for: id).budget).raising(by: tokens) }
         publish(moved)
         startDriving(id)
     }
@@ -77,7 +81,7 @@ actor WorkflowEngine {
         guard task.state == .awaitingInput, task.waitReason == .noTestCommand || task.waitReason == .testTimedOut else {
             throw .illegalTransition(from: task.state, to: .review)
         }
-        publish(try TaskTransitions.move(task, to: .review, fixLoopCap: settings.fixLoopCap))
+        publish(try TaskTransitions.move(task, to: .review, fixLoopCap: effectiveSettings(for: id).fixLoopCap))
         startDriving(id)
     }
 
@@ -90,6 +94,18 @@ actor WorkflowEngine {
     }
 
     func task(_ id: UUID) -> WorkflowTask? { tasks[id] }
+
+    /// Replaces the settings used by tasks submitted after this call. Running and already queued tasks keep theirs.
+    /// Complexity: O(1) time, O(1) space
+    func update(settings: EngineSettings) {
+        self.settings = settings
+    }
+
+    /// The copy a task was submitted with; falls back to the current settings for an unknown id.
+    /// Complexity: O(1) time, O(1) space
+    func effectiveSettings(for id: UUID) -> EngineSettings {
+        taskSettings[id] ?? settings
+    }
 
     // MARK: - State changes
 
@@ -114,7 +130,7 @@ actor WorkflowEngine {
     func apply(_ id: UUID, to state: TaskState, _ edit: (WorkflowTask) -> WorkflowTask = { $0 }) -> Bool {
         guard let task = tasks[id], !task.state.isTerminal else { return false }
         do {
-            publish(try TaskTransitions.move(edit(task), to: state, fixLoopCap: settings.fixLoopCap))
+            publish(try TaskTransitions.move(edit(task), to: state, fixLoopCap: effectiveSettings(for: id).fixLoopCap))
             return true
         } catch {
             AppLog.workflow.error("illegal engine transition \(task.state.rawValue) -> \(state.rawValue)")

@@ -49,6 +49,11 @@ final class WorkflowViewModel {
 
     // MARK: - Lifecycle
 
+    /// Gives the engine new settings for tasks submitted from now on; running tasks keep theirs.
+    func applySettings(_ settings: EngineSettings) async {
+        await engine.update(settings: settings)
+    }
+
     /// Starts consuming the engine and log streams. Idempotent; call before the first `submit`.
     func start() {
         guard updatesTask == nil else { return }

@@ -15,7 +15,7 @@ extension WorkflowEngine {
         guard let task = tasks[id] else { return }
         var worktree: Worktree?
         do {
-            if settings.useWorktree {
+            if effectiveSettings(for: id).useWorktree {
                 worktree = try await deps.worktrees.create(repo: task.projectRoot, slug: task.slug)
             } else {
                 baseCommits[id] = try await deps.git.headCommit(in: task.projectRoot)
@@ -81,7 +81,7 @@ extension WorkflowEngine {
         case .timedOut: park(id, .testTimedOut)
         case .notFound: park(id, .other("the test tool was not found: \(command.display)"))
         case .failed(_, let errors, _):
-            guard task.fixAttempts < settings.fixLoopCap else {
+            guard task.fixAttempts < effectiveSettings(for: id).fixLoopCap else {
                 fail(id, .fixLoopExhausted(attempts: task.fixAttempts)); return
             }
             apply(id, to: .fix) { $0.with(lastErrors: errors) }
@@ -122,7 +122,7 @@ extension WorkflowEngine {
               withinBudget(id, estimate: prompt.estimatedTokens), let current = tasks[id] else { return nil }
         let request = StageRunRequest(
             stage: stage, config: effectiveConfig(for: current, stage: stage), prompt: prompt.text,
-            sessionId: settings.resumeSessionFor.contains(stage) ? current.sessionId : nil,
+            sessionId: effectiveSettings(for: id).resumeSessionFor.contains(stage) ? current.sessionId : nil,
             addDirs: prompt.addDirs, workingDirectory: current.workingDirectory)
         return await stream(request, id: id, state: state)
     }
@@ -185,7 +185,7 @@ extension WorkflowEngine {
     /// Pauses (awaitingInput) when spend plus the next prompt would pass the per-task limit.
     func withinBudget(_ id: UUID, estimate: Int) -> Bool {
         guard let task = tasks[id] else { return false }
-        switch (budgets[id] ?? settings.budget).check(spent: task.totalUsage, nextEstimate: estimate) {
+        switch (budgets[id] ?? effectiveSettings(for: task.id).budget).check(spent: task.totalUsage, nextEstimate: estimate) {
         case .proceed: return true
         case .pause(let spent, let limit):
             park(id, .budgetExceeded(spent: spent, limit: limit))
@@ -196,7 +196,7 @@ extension WorkflowEngine {
     /// Stage config; Fix escalates the model from the second attempt; the test command joins the allowed tools
     /// of Code and Fix only when `ClaudeCommandBuilder` accepts the resulting rule.
     func effectiveConfig(for task: WorkflowTask, stage: WorkflowStage) -> StageConfig {
-        let base = settings.policy.config(for: stage)
+        let base = effectiveSettings(for: task.id).policy.config(for: stage)
         var model = base.model
         if stage == .fix, task.fixAttempts >= 2, let escalated = base.escalationModel { model = escalated }
         var tools = base.allowedTools
@@ -222,7 +222,7 @@ extension WorkflowEngine {
         if let cached = testCommands[id] { return cached }
         guard let task = tasks[id] else { return nil }
         let command: TestCommand?
-        if let override = settings.testCommandOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
+        if let override = effectiveSettings(for: id).testCommandOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
             command = TestCommand(executable: URL(fileURLWithPath: "/bin/zsh"), arguments: ["-c", override], display: override)
         } else {
             command = await deps.tests.detect(in: task.workingDirectory)

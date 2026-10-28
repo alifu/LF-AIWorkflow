@@ -8,13 +8,16 @@ import SwiftUI
 struct TaskListView: View {
     let model: any WorkflowControlling
     let router: PanelRouter
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let palette = theme.palette(for: scheme)
         if model.rows.isEmpty {
             VStack(spacing: 6) {
                 Spacer()
-                Text("No tasks").font(.system(size: 14, weight: .semibold))
-                Text("Open the New tab to start one.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("No tasks").font(theme.titleFont.font)
+                Text("Open the New tab to start one.").font(theme.bodyLargeFont.font).foregroundStyle(palette.secondaryText.color)
                 Spacer()
             }
             .frame(maxWidth: .infinity)

@@ -38,7 +38,7 @@ nonisolated struct ToolLocator: Sendable {
     private let isExecutable: @Sendable (String) -> Bool
 
     init(searchPath: [String], overrides: [Tool: String] = [:],
-         isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) {
+         isExecutable: @escaping @Sendable (String) -> Bool = { ToolPathValidator.kind(atPath: $0) == .regularExecutable }) {
         self.searchDirectories = searchPath
         self.overrides = overrides
         self.isExecutable = isExecutable

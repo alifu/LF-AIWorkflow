@@ -12,6 +12,9 @@ struct TaskDetailView: View {
     let router: PanelRouter
     var hover: HoverController?
     @State private var approvalDismissed = false
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -20,7 +23,7 @@ struct TaskDetailView: View {
                     .controlSize(.small)
                     .accessibilityLabel("Back to task list")
                     .keyboardShortcut(.cancelAction)
-                Text(row?.title ?? "Task").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                Text(row?.title ?? "Task").font(theme.titleFont.font).lineLimit(1)
                 Spacer()
                 if let row, row.actions.contains(.cancel) {
                     Button("Cancel task", role: .destructive) { Task { await model.cancel(row.id) } }
@@ -29,10 +32,10 @@ struct TaskDetailView: View {
             }
             if let row {
                 HStack(alignment: .top, spacing: 12) {
-                    MascotPlaceholder(pose: pose(row), size: 64)
+                    MascotView(pose: pose(row), size: 64)
                     VStack(alignment: .leading, spacing: 6) {
                         StageChipStrip(chips: row.chips)
-                        Text(row.statusLine).font(.system(size: 12)).foregroundStyle(row.needsAttention ? Color.orange : .secondary)
+                        Text(row.statusLine).font(theme.bodyLargeFont.font).foregroundStyle(row.needsAttention ? palette.warning.color : palette.secondaryText.color)
                         detailActions(row)
                     }
                 }
@@ -45,7 +48,7 @@ struct TaskDetailView: View {
                 TaskLogPane(model: model, taskID: row.id, caption: "Activity · read-only")
                 footer(row)
             } else {
-                Text("This task is no longer listed.").foregroundStyle(.secondary)
+                Text("This task is no longer listed.").foregroundStyle(palette.secondaryText.color)
                 Spacer()
             }
         }
@@ -59,7 +62,7 @@ struct TaskDetailView: View {
     @ViewBuilder private var approvalSheet: some View {
         if let row, row.actions.contains(.approve), !approvalDismissed, let task = model.task(row.id) {
             ZStack {
-                Color.black.opacity(0.55)
+                palette.scrim.color
                 PlanApprovalView(task: task, decider: model, hover: hover, onClose: { approvalDismissed = true })
             }
             .transition(.opacity)
@@ -93,7 +96,7 @@ struct TaskDetailView: View {
     @ViewBuilder private func footer(_ row: TaskRowModel) -> some View {
         if let branch = row.branch, let path = row.worktreePath {
             Text("\(branch) · \(path)")
-                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                .font(theme.monoFont.font).foregroundStyle(palette.secondaryText.color)
                 .lineLimit(1).truncationMode(.middle)
         }
     }

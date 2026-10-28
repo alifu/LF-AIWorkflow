@@ -9,6 +9,9 @@ import SwiftUI
 struct PlanView: View {
     @State private var model: PlanViewModel
     @State private var expanded = false
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     init(task: WorkflowTask, loader: any PlanLoading = FilePlanLoader()) {
         _model = State(initialValue: PlanViewModel(task: task, loader: loader, opener: EditorOpener(), pasteboard: SystemPasteboard()))
@@ -18,7 +21,7 @@ struct PlanView: View {
         if model.isVisible {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("Plan").font(.system(size: 12, weight: .semibold))
+                    Text("Plan").font(theme.subheadingFont.font)
                     badge
                     Spacer()
                     Button("Open in editor") { model.openInEditor() }
@@ -29,25 +32,30 @@ struct PlanView: View {
                         .accessibilityLabel(expanded ? "Hide plan steps" : "Show plan steps")
                 }
                 .controlSize(.small)
-                Text(model.pathText).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                Text(model.pathText).font(theme.monoFont.font).foregroundStyle(palette.secondaryText.color)
                     .lineLimit(1).truncationMode(.middle)
                 if let error = model.loadError ?? model.openError {
-                    Text(error).font(.system(size: 11)).foregroundStyle(.orange)
+                    Text(error).font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
                 }
                 if expanded, let document = model.document { PlanStepsView(steps: document.steps) }
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.07)))
+            .themedSurface(.row)
             .accessibilityElement(children: .contain)
             .task { await model.load() }
         }
     }
 
+    private var badgeFill: Color {
+        let tint = model.badge == .approved ? palette.success : palette.warning
+        return tint.fading(theme.pillTintOpacity).color
+    }
+
     private var badge: some View {
         Text(model.badge.text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(theme.chipFont.weighted(.semibold).font)
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(model.badge == .approved ? Color.green.opacity(0.25) : Color.orange.opacity(0.25)))
+            .background(Capsule().fill(badgeFill))
             .accessibilityLabel(model.badge.accessibilityText)
     }
 }

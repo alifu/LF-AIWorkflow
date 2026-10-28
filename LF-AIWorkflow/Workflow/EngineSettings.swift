@@ -37,3 +37,21 @@ nonisolated struct EngineDependencies: Sendable {
     /// Optional activity sink (the Terminal tab). Nil in tests that do not care.
     var log: (any TaskLogging)? = nil
 }
+
+extension EngineSettings {
+    /// The engine's settings for one snapshot of the user's Settings. Fix-loop cap, worktree and resume rules keep their defaults.
+    /// Complexity: O(s) time, O(s) space (s = stages)
+    static func from(_ snapshot: SettingsSnapshot) -> EngineSettings {
+        let defaults = EngineSettings.default
+        let budget = TokenBudget(
+            perTaskMaxTokens: snapshot.taskBudget, inlineMaxTokens: TokenBudget.default.inlineMaxTokens,
+            errorMaxTokens: TokenBudget.default.errorMaxTokens, rulesMaxTokens: TokenBudget.default.rulesMaxTokens,
+            promptMaxTokens: TokenBudget.default.promptMaxTokens.merging(snapshot.promptCaps) { _, user in user })
+        return EngineSettings(
+            fixLoopCap: defaults.fixLoopCap, useWorktree: defaults.useWorktree,
+            testCommandOverride: defaults.testCommandOverride, budget: budget,
+            policy: StagePolicy.defaults(testCommand: nil)
+                .overriding(models: snapshot.stageModels, maxTurns: snapshot.stageMaxTurns),
+            resumeSessionFor: defaults.resumeSessionFor)
+    }
+}

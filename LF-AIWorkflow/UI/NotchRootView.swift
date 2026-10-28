@@ -14,6 +14,7 @@ struct NotchRootView: View {
     let layout: NotchLayoutModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(SettingsStore.self) private var settings: SettingsStore?
 
     var body: some View {
         content
@@ -22,7 +23,7 @@ struct NotchRootView: View {
             .animation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8),
                        value: hover.state)
             .onChange(of: model.peek) { _, message in
-                if message != nil { hover.showPeek() }
+                if message != nil { hover.showPeek(enabled: settings?.peekEnabled ?? true) }
             }
     }
 

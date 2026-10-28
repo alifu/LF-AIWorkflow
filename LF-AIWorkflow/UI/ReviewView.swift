@@ -9,6 +9,9 @@ import SwiftUI
 struct ReviewView: View {
     @State private var model: ReviewViewModel
     let onDone: () -> Void
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     init(task: WorkflowTask, loader: any ReviewLoading = FileReviewLoader(), onDone: @escaping () -> Void) {
         _model = State(initialValue: ReviewViewModel(task: task, loader: loader, opener: EditorOpener()))
@@ -18,8 +21,8 @@ struct ReviewView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Review").font(.system(size: 12, weight: .semibold))
-                Text(countsText).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Review").font(theme.subheadingFont.font)
+                Text(countsText).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
                 Spacer()
                 Button("Open worktree") { model.openWorktree() }
                     .accessibilityHint("Shows the task folder in Finder")
@@ -31,10 +34,10 @@ struct ReviewView: View {
             }
             .controlSize(.small)
             if let message = model.message {
-                Text(message).font(.system(size: 11)).foregroundStyle(.orange)
+                Text(message).font(theme.bodyFont.font).foregroundStyle(palette.warning.color)
             }
             if model.isLoaded && model.findings.isEmpty {
-                Text("No findings.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("No findings.").font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 3) {
@@ -47,7 +50,7 @@ struct ReviewView: View {
             footer
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.07)))
+        .themedSurface(.row)
         .accessibilityElement(children: .contain)
         .task { await model.load() }
     }
@@ -60,11 +63,11 @@ struct ReviewView: View {
     @ViewBuilder private var footer: some View {
         HStack {
             if let path = model.reportPath {
-                Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                Text(path).font(theme.monoFont.font).foregroundStyle(palette.secondaryText.color)
                     .lineLimit(1).truncationMode(.middle)
             }
             if model.unparsedCount > 0 {
-                Text("\(model.unparsedCount) line(s) could not be read").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("\(model.unparsedCount) line(s) could not be read").font(theme.captionFont.font).foregroundStyle(palette.secondaryText.color)
             }
         }
     }
@@ -73,20 +76,23 @@ struct ReviewView: View {
 struct FindingRow: View {
     let finding: Finding
     let onOpen: () -> Void
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(finding.severity.label)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(theme.iconFont.weighted(.bold).font)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(tint.opacity(0.28)))
-                    Text(location).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                        .background(RoundedRectangle(cornerRadius: theme.badgeCornerRadius).fill(tint.fading(theme.badgeTintOpacity).color))
+                    Text(location).font(theme.monoBodyFont.font).lineLimit(1).truncationMode(.middle)
                 }
-                Text(finding.issue).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+                Text(finding.issue).font(theme.bodyFont.font).fixedSize(horizontal: false, vertical: true)
                 if let suggestion = finding.suggestion {
-                    Text("Suggestion: \(suggestion)").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text("Suggestion: \(suggestion)").font(theme.captionFont.font).foregroundStyle(palette.secondaryText.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -107,13 +113,13 @@ struct FindingRow: View {
             + (finding.suggestion.map { ". Suggestion: \($0)" } ?? "")
     }
 
-    private var tint: Color {
+    private var tint: ThemeColor {
         switch finding.severity {
-        case .critical: .red
-        case .high: .orange
-        case .medium: .yellow
-        case .low: .blue
-        case .info: .gray
+        case .critical: palette.failure
+        case .high: palette.warning
+        case .medium: palette.caution
+        case .low: palette.accent
+        case .info: palette.neutral
         }
     }
 }

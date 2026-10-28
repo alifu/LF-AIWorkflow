@@ -10,24 +10,23 @@ struct TaskRowView: View {
     let row: TaskRowModel
     let model: any WorkflowControlling
     let router: PanelRouter
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(row.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text(row.title).font(theme.headingFont.font).lineLimit(1)
                     Spacer(minLength: 8)
                     ElapsedLabel(row: row)
-                    Text(row.tokensText).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+                    Text(row.tokensText).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color).monospacedDigit()
                 }
                 StageChipStrip(chips: row.chips)
-                Text(row.statusLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(row.needsAttention ? Color.orange : .secondary)
-                    .lineLimit(2)
+                statusLine
                 if let progress = row.progress {
-                    ProgressView(value: progress).progressViewStyle(.linear).tint(.accentColor)
-                        .accessibilityHidden(true)
+                    ThemedProgressBar(value: progress).accessibilityHidden(true)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -35,8 +34,27 @@ struct TaskRowView: View {
             actionBar
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(row.needsAttention ? 0.12 : 0.07)))
+        .themedSurface(row.needsAttention ? .attentionRow : .row)
         .contextMenu { contextMenu }
+    }
+
+    /// Solid themes show an attention row's status as a flat waiting pill; tinted themes keep colored text.
+    /// Complexity: O(1) time, O(1) space
+    @ViewBuilder private var statusLine: some View {
+        if row.needsAttention, theme.statusFills == .solid {
+            Text(row.statusLine)
+                .font(theme.bodyFont.font)
+                .foregroundStyle(palette.onStageFill.color)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(palette.waitingFill.color))
+                .lineLimit(2)
+        } else {
+            Text(row.statusLine)
+                .font(theme.bodyFont.font)
+                .foregroundStyle(row.needsAttention ? palette.warning.color : palette.secondaryText.color)
+                .lineLimit(2)
+        }
     }
 
     private var actionBar: some View {
@@ -75,6 +93,8 @@ struct TaskRowView: View {
 /// Elapsed time; ticks once a second only while the task is running.
 struct ElapsedLabel: View {
     let row: TaskRowModel
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if row.isRunning {
@@ -87,7 +107,7 @@ struct ElapsedLabel: View {
     }
 
     private func label(_ text: String) -> some View {
-        Text(text).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+        Text(text).font(theme.bodyFont.font).foregroundStyle(theme.palette(for: scheme).secondaryText.color).monospacedDigit()
             .accessibilityHidden(true)
     }
 }

@@ -100,7 +100,9 @@ struct ToolLocatorTests {
         printf '__LFPATH__%s__LFPATH__' "/noise/bin:/usr/bin"
         echo "trailing noise"
         """)
-        #expect(await LoginShellPath(shell: script.path).resolve() == "/noise/bin:/usr/bin")
+        // Generous timeout: a freshly written script can start slowly under parallel test load (TD-055); the
+        // production default of 5 s is exercised by loginShellPathTimesOut with a short override.
+        #expect(await LoginShellPath(shell: script.path, timeout: .seconds(30)).resolve() == "/noise/bin:/usr/bin")
     }
 
     @Test func loginShellPathNilForMissingShellOrFailure() async throws {

@@ -11,6 +11,7 @@ struct CollapsedView: View {
     let kind: NotchKind
     let summary: CollapsedSummary
     let onActivate: () -> Void
+    @Environment(\.appTheme) private var theme
 
     var body: some View {
         content
@@ -26,16 +27,16 @@ struct CollapsedView: View {
     @ViewBuilder private var content: some View {
         switch kind {
         case .notch:
-            Color.clear
+            ThemeColor.clear.color
         case .none:
             ZStack {
-                HalfCircleShape().fill(.black)
+                HalfCircleShape().fill(theme.collapsedWingColor.color)
                 HStack(spacing: 6) {
-                    MascotPlaceholder(pose: MascotPose.pose(for: summary), size: 18)
+                    MascotView(pose: MascotPose.pose(for: summary), size: 18)
                     if summary.activeCount > 0 {
                         Text("● \(summary.activeCount)")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .font(theme.countFont.font)
+                            .foregroundStyle(theme.collapsedWingText.color)
                             .monospacedDigit()
                     }
                 }
