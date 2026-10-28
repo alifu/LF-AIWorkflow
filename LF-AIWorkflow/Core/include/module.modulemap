@@ -1,0 +1,4 @@
+module LFCore {
+    header "LFCore.h"
+    export *
+}

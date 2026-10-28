@@ -10,8 +10,10 @@ import SwiftUI
 @main
 struct LF_AIWorkflowApp: App {
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // Menu-bar-only app (LSUIElement): no window opens at launch.
+        // The notch panel is created in a later phase.
+        Settings {
+            EmptyView()
         }
     }
 }
