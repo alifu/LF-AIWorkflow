@@ -81,7 +81,7 @@ enum AppComposition {
         let git = GitClient(locator: locator, environment: environment)
         let logs = TaskLogStore()
         let deps = EngineDependencies(
-            claude: claude, tests: TestRunner(override: engineSettings.testCommandOverride, environment: environment),
+            claude: claude, tests: TestRunner(environment: environment),
             graph: GraphifyClient(locator: locator, environment: environment), git: git,
             worktrees: WorktreeManager(git: git), log: logs)
         let engine = WorkflowEngine(dependencies: deps, settings: engineSettings)

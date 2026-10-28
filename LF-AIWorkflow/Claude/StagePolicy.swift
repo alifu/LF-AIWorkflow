@@ -56,6 +56,8 @@ nonisolated struct StagePolicy: Sendable, Equatable {
     /// `git diff --output=<file>` (and abbreviations like `--out`) writes a file, so Review (read-only) must not reach it.
     /// `:*` only matches "space then anything", so a `*--out*` glob is used to also catch `--output=f` and `--outp f`.
     static let reviewDeniedDiffOutput = ["Bash(git diff *--out*)"]
+    /// Code and Fix must not edit Claude config or git metadata/hooks/attributes (`.gitattributes`, `.gitmodules`, `.git/`).
+    static let codeDeniedPaths = ["Write(./.claude/**)", "Edit(./.claude/**)", "Write(**/.git*)", "Edit(**/.git*)"]
     static let writeTools = ["Write", "Edit", "NotebookEdit"]
 
     private let configs: [WorkflowStage: StageConfig]
@@ -75,7 +77,8 @@ nonisolated struct StagePolicy: Sendable, Equatable {
             .fix: StageConfig(model: "haiku", escalationModel: "sonnet", permissionMode: .acceptEdits,
                               allowedTools: codeTools, disallowedTools: [], maxTurns: 10),
             .review: StageConfig(model: "opus", escalationModel: nil, permissionMode: .default,
-                                 allowedTools: readTools + ["Bash(git diff:*)"], disallowedTools: [], maxTurns: 8),
+                                 allowedTools: readTools + ["Bash(git diff:*)"], disallowedTools: [], maxTurns: 8,
+                                 builtinTools: readTools + ["Bash"]),
         ])
     }
 
@@ -86,6 +89,7 @@ nonisolated struct StagePolicy: Sendable, Equatable {
         let base = configs[stage]!
         var allowed = base.allowedTools
         var denied = base.disallowedTools + Self.alwaysDenied
+        if stage == .code || stage == .fix { denied += Self.codeDeniedPaths }
         if stage == .review {
             allowed.removeAll { Self.writeTools.contains($0) }
             denied += Self.writeTools + Self.reviewDeniedDiffOutput

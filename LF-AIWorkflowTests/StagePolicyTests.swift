@@ -33,6 +33,18 @@ struct StagePolicyTests {
         #expect(code.escalationModel == nil)
     }
 
+    @Test(arguments: [WorkflowStage.code, .fix])
+    func codeAndFixCannotWriteClaudeOrGitFiles(stage: WorkflowStage) {
+        let denied = Set(policy.config(for: stage).disallowedTools)
+        for rule in ["Write(./.claude/**)", "Edit(./.claude/**)", "Write(**/.git*)", "Edit(**/.git*)"] {
+            #expect(denied.contains(rule), "\(rule) missing")
+        }
+    }
+
+    @Test func reviewUsesExplicitBuiltinToolList() {
+        #expect(policy.config(for: .review).builtinTools == ["Read", "Grep", "Glob", "Bash"])
+    }
+
     @Test func reviewNeverAllowsWriteToolsEvenAfterReplacing() {
         let sneaky = StageConfig(model: "opus", escalationModel: nil, permissionMode: .acceptEdits,
                                  allowedTools: ["Read", "Write", "Edit", "NotebookEdit"], disallowedTools: [], maxTurns: 5)
@@ -64,7 +76,7 @@ struct StagePolicyTests {
         #expect(changed != original)
         let config = changed.config(for: .code)
         #expect(config.model == "haiku" && config.maxTurns == 3)
-        #expect(config.disallowedTools == ["Bash(curl:*)"] + StagePolicy.alwaysDenied)
+        #expect(config.disallowedTools == ["Bash(curl:*)"] + StagePolicy.alwaysDenied + StagePolicy.codeDeniedPaths)
     }
 
     @Test func reviewDeniesGitDiffOutputFileAndAbbreviations() {

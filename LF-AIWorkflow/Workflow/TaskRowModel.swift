@@ -21,6 +21,9 @@ nonisolated struct TaskRowModel: Sendable, Equatable, Identifiable {
     /// 0...1 while the task is live, nil once it ended.
     let progress: Double?
     let actions: Set<RowAction>
+    /// Tokens added to the budget on Resume; > 0 only for a budget wait (a plain resume re-pauses at once).
+    let resumeRaiseTokens: Int
+    let resumeLabel: String
     let hasPlanFile: Bool
     let needsAttention: Bool
     let isRunning: Bool
@@ -46,6 +49,13 @@ nonisolated struct TaskRowModel: Sendable, Equatable, Identifiable {
         self.elapsed = elapsed
         progress = task.state.isTerminal || task.state == .awaitingInput ? nil : Self.progress(chips)
         actions = Self.actions(for: task)
+        if case .budgetExceeded = task.waitReason {
+            resumeRaiseTokens = Self.budgetResumeStep
+            resumeLabel = "Resume +\(TaskFormat.tokens(Self.budgetResumeStep)) tokens"
+        } else {
+            resumeRaiseTokens = 0
+            resumeLabel = "Resume"
+        }
         hasPlanFile = task.planFile != nil
         needsAttention = Self.attentionStates.contains(task.state)
         isRunning = Self.runningStates.contains(task.state)
@@ -55,6 +65,9 @@ nonisolated struct TaskRowModel: Sendable, Equatable, Identifiable {
         accessibilityLabel = [task.title, TaskText.headline(task.state), tokens > 0 ? TaskFormat.spokenTokens(tokens) : nil,
                               TaskFormat.spokenDuration(elapsed)].compactMap { $0 }.joined(separator: ", ")
     }
+
+    /// Tokens added when resuming a budget-paused task.
+    static let budgetResumeStep = 250_000
 
     static let runningStates: Set<TaskState> = [.plan, .code, .test, .fix, .review]
     static let attentionStates: Set<TaskState> = [.awaitingApproval, .awaitingInput, .failed]
@@ -80,7 +93,7 @@ nonisolated struct TaskRowModel: Sendable, Equatable, Identifiable {
         }
         if task.state == .awaitingInput {
             if task.resumeState != nil { actions.insert(.resume) }
-            if task.waitReason == .noTestCommand || task.waitReason == .testTimedOut { actions.insert(.skipTests) }
+            if task.waitReason?.allowsSkippingTests == true { actions.insert(.skipTests) }
         }
         if task.reviewFile != nil { actions.insert(.viewReview) }
         if task.planFile != nil { actions.insert(.viewPlan) }
@@ -113,6 +126,7 @@ nonisolated enum TaskText {
         case .budgetExceeded(let spent, let limit): "Token budget reached (\(TaskFormat.tokens(spent)) of \(TaskFormat.tokens(limit)))"
         case .noTestCommand: "No test command found"
         case .testTimedOut: "Tests timed out"
+        case .testEntryModified(let path): "The code changed \(path), which runs the tests. Review it, then resume"
         case .toolMissing(let tool): "\(tool.displayName) not found"
         case .other(let text): text
         case nil: "Waiting for input"

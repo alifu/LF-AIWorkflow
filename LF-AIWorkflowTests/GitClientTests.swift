@@ -167,6 +167,46 @@ struct GitClientTests {
         #expect(head.count == 40)
     }
 
+    @Test func scrubbedEnvironmentKeepsOnlyPromptAndPagerGitVariables() {
+        let env = GitClient.scrubbed(["GIT_SSH_COMMAND": "evil", "GIT_CONFIG_COUNT": "1", "GIT_EXTERNAL_DIFF": "x",
+                                      "GIT_DIR": "/x", "PATH": "/usr/bin", "HOME": "/h", "GIT_PAGER": "less"])
+        #expect(env["PATH"] == "/usr/bin" && env["HOME"] == "/h")
+        #expect(env["GIT_TERMINAL_PROMPT"] == "0" && env["GIT_PAGER"] == "cat")
+        #expect(env.keys.filter { $0.hasPrefix("GIT_") }.sorted() == ["GIT_PAGER", "GIT_TERMINAL_PROMPT"])
+    }
+
+    @Test func repoConfiguredFsmonitorAndExternalDiffNeverRun() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let marker = repo.appendingPathComponent("../marker-\(UUID().uuidString)").standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let script = repo.appendingPathComponent("evil.sh")
+        try "#!/bin/sh\ntouch '\(marker.path)'\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        _ = try await TestEnv.git(["config", "core.fsmonitor", script.path], in: repo)
+        _ = try await TestEnv.git(["config", "diff.external", script.path], in: repo)
+        let base = try await client().headCommit(in: repo)
+        try TestEnv.write(repo, "a.swift", "let a = 9\n")
+        _ = try await client().reviewDiff(in: repo, base: base, markNewFiles: true)
+        _ = try await client().run(["status"], in: repo)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func repoHooksNeverRunOnWorktreeAdd() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let marker = repo.appendingPathComponent("../hook-\(UUID().uuidString)").standardizedFileURL
+        let wt = repo.appendingPathComponent("../wt-\(UUID().uuidString)").standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: marker); try? FileManager.default.removeItem(at: wt) }
+        let hook = repo.appendingPathComponent(".git/hooks/post-checkout")
+        try FileManager.default.createDirectory(at: hook.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\ntouch '\(marker.path)'\n".write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        _ = try await client().run(["worktree", "add", "-b", "ai/x", wt.path], in: repo)
+        #expect(FileManager.default.fileExists(atPath: wt.path))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func untrackedDiffsStopAtTotalLimitWithNote() async throws {
         let repo = try await TestEnv.makeRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

@@ -21,6 +21,7 @@ final class FakeClaudeRunner: ClaudeStageRunning {
         var started: [WorkflowStage] = []
         var terminated: [WorkflowStage] = []
         var activities: [WorkflowStage: [String]] = [:]
+        var onRun: (@Sendable (StageRunRequest) -> Void)?
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -44,6 +45,9 @@ final class FakeClaudeRunner: ClaudeStageRunning {
         state.withLock { $0.activities[stage] = lines }
     }
 
+    /// Side effect run at the start of every stage run (simulates the model editing files).
+    func onRun(_ effect: @escaping @Sendable (StageRunRequest) -> Void) { state.withLock { $0.onRun = effect } }
+
     var calls: [StageRunRequest] { state.withLock { $0.calls } }
     var terminated: [WorkflowStage] { state.withLock { $0.terminated } }
     func calls(for stage: WorkflowStage) -> [StageRunRequest] { calls.filter { $0.stage == stage } }
@@ -65,6 +69,7 @@ final class FakeClaudeRunner: ClaudeStageRunning {
     }
 
     func run(_ request: StageRunRequest) -> AsyncThrowingStream<StageRunEvent, Error> {
+        state.withLock { $0.onRun }?(request)
         let script: Script = state.withLock {
             $0.calls.append(request)
             $0.started.append(request.stage)

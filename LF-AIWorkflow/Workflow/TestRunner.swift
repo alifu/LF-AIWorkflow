@@ -14,19 +14,44 @@ actor TestRunner: TestRunning {
     private static let envPath = URL(fileURLWithPath: "/usr/bin/env")
     private static let shellPath = URL(fileURLWithPath: "/bin/sh")
 
-    private let override: String?
     private let timeout: Duration
     private let errorMaxTokens: Int
     private let maxLogBytes: Int
     private let environment: [String: String]
 
-    init(override: String? = nil, timeout: Duration = .seconds(600), errorMaxTokens: Int = 1_500,
+    init(timeout: Duration = .seconds(600), errorMaxTokens: Int = 1_500,
          maxLogBytes: Int = 32 << 20, environment: [String: String]) {
-        self.override = override.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         self.timeout = timeout
         self.errorMaxTokens = errorMaxTokens
         self.maxLogBytes = maxLogBytes
-        self.environment = environment
+        self.environment = Self.stripped(environment)
+    }
+
+    private static let credentialMarkers = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "CREDENTIAL", "PRIVATE_KEY"]
+    private static let credentialPrefixes = ["GITHUB_", "GH_", "AWS_", "ANTHROPIC_", "OPENAI_", "GIT_ASKPASS", "SSH_"]
+
+    /// Environment without ssh-agent access or credential-like variables; PATH, HOME, LANG and the like survive.
+    /// Complexity: O(n) time, O(n) space
+    static func stripped(_ environment: [String: String]) -> [String: String] {
+        environment.filter { key, _ in
+            let name = key.uppercased()
+            return !credentialPrefixes.contains(where: name.hasPrefix) && !credentialMarkers.contains(where: name.contains)
+        }
+    }
+
+    /// Prefixes whose push URLs are rewritten to an unreachable host, so `git push` cannot succeed from a test run.
+    private static let blockedPushPrefixes = ["https://", "http://", "ssh://", "git://", "git@", "file://", "/", "."]
+    private static let blockedPushBase = "invalid://push-blocked/"
+
+    /// `GIT_CONFIG_*` entries (`url.<invalid>.pushInsteadOf`) that make every push target unreachable.
+    /// Complexity: O(p) time, O(p) space (p = prefixes)
+    static func pushBlockingEnvironment() -> [String: String] {
+        var env = ["GIT_CONFIG_COUNT": String(blockedPushPrefixes.count), "GIT_TERMINAL_PROMPT": "0"]
+        for (index, prefix) in blockedPushPrefixes.enumerated() {
+            env["GIT_CONFIG_KEY_\(index)"] = "url.\(blockedPushBase).pushInsteadOf"
+            env["GIT_CONFIG_VALUE_\(index)"] = prefix
+        }
+        return env
     }
 
     // MARK: - Detection
@@ -40,14 +65,15 @@ actor TestRunner: TestRunning {
         if names.contains("gradlew") { return gradle(root, fileManager) }
         if let container = names.first(where: { $0.hasSuffix(".xcworkspace") }) ?? names.first(where: { $0.hasSuffix(".xcodeproj") }) {
             let url = root.appendingPathComponent(container)
-            return try? xcodebuildCommand(container: url, scheme: scheme(for: url, fileManager), onlyTesting: [])
+            return (try? xcodebuildCommand(container: url, scheme: scheme(for: url, fileManager), onlyTesting: []))
+                .map { $0.withEntryPoint(container + "/project.pbxproj") }
         }
         let simple: [(file: String, tool: [String])] = [
             ("Package.swift", ["swift", "test"]), ("package.json", ["npm", "test"]), ("Cargo.toml", ["cargo", "test"]),
             ("go.mod", ["go", "test", "./..."]), ("Makefile", ["make", "test"]),
         ]
         guard let match = simple.first(where: { names.contains($0.file) }) else { return nil }
-        return tool(match.tool)
+        return tool(match.tool).withEntryPoint(match.file)
     }
 
     /// TD-023: one `-only-testing:<target>` argument per target; commas anywhere throw (the CLI would split a
@@ -64,9 +90,6 @@ actor TestRunner: TestRunning {
     }
 
     func detect(in root: URL) async -> TestCommand? {
-        if let override {
-            return TestCommand(executable: URL(fileURLWithPath: "/bin/zsh"), arguments: ["-c", override], display: override)
-        }
         return Self.detect(in: root)
     }
 
@@ -82,17 +105,18 @@ actor TestRunner: TestRunning {
         let script = root.appendingPathComponent("scripts/check.sh")
         guard fm.fileExists(atPath: script.path) else { return nil }
         if fm.isExecutableFile(atPath: script.path) {
-            return TestCommand(executable: script, arguments: [], display: "scripts/check.sh")
+            return TestCommand(executable: script, arguments: [], display: "scripts/check.sh", entryPoint: "scripts/check.sh")
         }
-        return TestCommand(executable: shellPath, arguments: ["scripts/check.sh"], display: "scripts/check.sh")
+        return TestCommand(executable: shellPath, arguments: ["scripts/check.sh"], display: "scripts/check.sh",
+                           entryPoint: "scripts/check.sh")
     }
 
     private static func gradle(_ root: URL, _ fm: FileManager) -> TestCommand {
         let wrapper = root.appendingPathComponent("gradlew")
         if fm.isExecutableFile(atPath: wrapper.path) {
-            return TestCommand(executable: wrapper, arguments: ["check"], display: "./gradlew check")
+            return TestCommand(executable: wrapper, arguments: ["check"], display: "./gradlew check", entryPoint: "gradlew")
         }
-        return TestCommand(executable: shellPath, arguments: ["gradlew", "check"], display: "./gradlew check")
+        return TestCommand(executable: shellPath, arguments: ["gradlew", "check"], display: "./gradlew check", entryPoint: "gradlew")
     }
 
     /// First shared scheme (sorted) of the container, else the container's name.
@@ -142,6 +166,7 @@ actor TestRunner: TestRunning {
         env["TERM"] = "dumb"
         env["NO_COLOR"] = "1"
         env["CI"] = "1"
+        env.merge(Self.pushBlockingEnvironment()) { _, new in new }
         return ProcessInvocation(executable: cmd.executable, arguments: cmd.arguments, environment: env,
                                  workingDirectory: dir, stdin: Data())
     }

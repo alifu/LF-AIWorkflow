@@ -30,7 +30,14 @@ nonisolated enum TaskState: String, Sendable, Hashable, CaseIterable, Codable {
 }
 
 nonisolated enum WaitReason: Sendable, Equatable {
-    case budgetExceeded(spent: Int, limit: Int), noTestCommand, testTimedOut, toolMissing(Tool), other(String)
+    case budgetExceeded(spent: Int, limit: Int), noTestCommand, testTimedOut, testEntryModified(String), toolMissing(Tool), other(String)
+
+    var allowsSkippingTests: Bool {
+        switch self {
+        case .noTestCommand, .testTimedOut, .testEntryModified: true
+        default: false
+        }
+    }
 }
 
 nonisolated enum FailureReason: Sendable, Equatable {

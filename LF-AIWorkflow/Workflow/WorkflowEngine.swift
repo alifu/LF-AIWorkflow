@@ -22,6 +22,8 @@ actor WorkflowEngine {
     var tasks: [UUID: WorkflowTask] = [:]
     var budgets: [UUID: TokenBudget] = [:]
     var testCommands: [UUID: TestCommand] = [:]
+    /// Fingerprint of each task's test entry point as the Code stage started (see `TestEntryGuard`).
+    var entryFingerprints: [UUID: String] = [:]
     /// Base revision for the review diff when no worktree is used.
     var baseCommits: [UUID: String] = [:]
     private var drivers: [UUID: Task<Void, Never>] = [:]
@@ -69,6 +71,7 @@ actor WorkflowEngine {
             throw .illegalTransition(from: task.state, to: task.resumeState ?? .awaitingInput)
         }
         let moved = try TaskTransitions.move(task, to: target, fixLoopCap: effectiveSettings(for: id).fixLoopCap)
+        if case .testEntryModified = task.waitReason { acceptCurrentTestEntryPoint(id) }
         if tokens > 0 { budgets[id] = (budgets[id] ?? effectiveSettings(for: id).budget).raising(by: tokens) }
         publish(moved)
         startDriving(id)
@@ -78,9 +81,10 @@ actor WorkflowEngine {
     /// Complexity: O(1) time, O(1) space
     func skipTests(_ id: UUID) throws(WorkflowError) {
         let task = try lookup(id)
-        guard task.state == .awaitingInput, task.waitReason == .noTestCommand || task.waitReason == .testTimedOut else {
+        guard task.state == .awaitingInput, task.waitReason?.allowsSkippingTests == true else {
             throw .illegalTransition(from: task.state, to: .review)
         }
+        if case .testEntryModified = task.waitReason { acceptCurrentTestEntryPoint(id) }
         publish(try TaskTransitions.move(task, to: .review, fixLoopCap: effectiveSettings(for: id).fixLoopCap))
         startDriving(id)
     }

@@ -19,16 +19,15 @@ nonisolated struct GitClient: GitWorking {
         "**/.env*", "**/*.pem", "**/*.key", "**/id_rsa*", "**/id_ed25519*", "**/*.p12", "**/*.pfx", "**/*.keystore",
     ].map { ":(exclude,glob)" + $0 }
 
-    /// Variables that would redirect git to another repository, index or object store.
-    private static let redirectingVariables = [
-        "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    ]
+    /// Only these `GIT_*` variables survive: every other one can redirect git, inject config
+    /// (`GIT_CONFIG_*`, `GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, ...) or point it at another repository.
+    private static let allowedGitVariables: Set<String> = ["GIT_TERMINAL_PROMPT", "GIT_PAGER"]
 
     /// `git diff --no-index` exit status for a file it cannot hash (permissions, vanished file).
     private static let unreadableStatus: Int32 = 128
 
-    private static let baseOptions = ["--no-pager", "-c", "core.quotepath=off", "-c", "color.ui=false"]
+    private static let baseOptions = ["--no-pager", "-c", "core.quotepath=off", "-c", "color.ui=false",
+                                    "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external="]
 
     private let locator: ToolLocator
     private let timeout: Duration
@@ -44,11 +43,16 @@ nonisolated struct GitClient: GitWorking {
         self.untrackedByteLimit = untrackedByteLimit
         self.locator = locator
         self.timeout = timeout
-        var env = environment
-        for key in Self.redirectingVariables { env[key] = nil }
+        self.environment = Self.scrubbed(environment)
+    }
+
+    /// Drops every `GIT_*` variable except the two allowed ones, then pins those.
+    /// Complexity: O(n) time, O(n) space
+    static func scrubbed(_ environment: [String: String]) -> [String: String] {
+        var env = environment.filter { !$0.key.hasPrefix("GIT_") || allowedGitVariables.contains($0.key) }
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_PAGER"] = "cat"
-        self.environment = env
+        return env
     }
 
     /// Runs `git <args>` in `dir` and returns stdout. Non-zero exit becomes `.commandFailed` (or `.notARepository`).

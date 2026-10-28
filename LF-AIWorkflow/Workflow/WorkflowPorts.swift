@@ -35,6 +35,16 @@ nonisolated struct TestCommand: Sendable, Equatable {
     let executable: URL
     let arguments: [String]
     let display: String
+    /// Project-relative file the command executes or is configured by (auto-detected commands only).
+    /// The Code/Fix stages can edit it, so a change needs the user's confirmation before the tests run.
+    let entryPoint: String?
+
+    init(executable: URL, arguments: [String], display: String, entryPoint: String? = nil) {
+        self.executable = executable
+        self.arguments = arguments
+        self.display = display
+        self.entryPoint = entryPoint
+    }
 }
 
 nonisolated enum TestOutcome: Sendable, Equatable {
@@ -80,4 +90,10 @@ nonisolated protocol GitWorking: Sendable {
 nonisolated protocol WorktreeProviding: Sendable {
     func create(repo: URL, slug: String) async throws(GitError) -> Worktree
     func remove(_ wt: Worktree, repo: URL, force: Bool) async throws(GitError)
+}
+
+nonisolated extension TestCommand {
+    func withEntryPoint(_ path: String) -> TestCommand {
+        TestCommand(executable: executable, arguments: arguments, display: display, entryPoint: path)
+    }
 }

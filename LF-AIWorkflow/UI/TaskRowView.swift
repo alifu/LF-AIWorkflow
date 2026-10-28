@@ -66,7 +66,7 @@ struct TaskRowView: View {
                     .accessibilityHint("Opens the plan approval sheet")
             }
             if row.actions.contains(.resume) {
-                Button("Resume") { Task { await model.resume(row.id, raising: 0) } }
+                Button(row.resumeLabel) { Task { await model.resume(row.id, raising: row.resumeRaiseTokens) } }
             }
             if row.actions.contains(.skipTests) {
                 Button("Skip tests") { Task { await model.skipTests(row.id) } }

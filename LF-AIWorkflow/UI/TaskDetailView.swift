@@ -86,7 +86,7 @@ struct TaskDetailView: View {
                     .accessibilityHint("Opens the plan approval sheet")
                 Button("Approve") { Task { await model.approve(row.id) } }.buttonStyle(.borderedProminent)
             }
-            if row.actions.contains(.resume) { Button("Resume") { Task { await model.resume(row.id, raising: 0) } } }
+            if row.actions.contains(.resume) { Button(row.resumeLabel) { Task { await model.resume(row.id, raising: row.resumeRaiseTokens) } } }
             if row.actions.contains(.skipTests) { Button("Skip tests") { Task { await model.skipTests(row.id) } } }
             if row.actions.contains(.openWorktree) { Button("Open worktree") { model.openWorktree(row.id) } }
         }

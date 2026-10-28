@@ -51,7 +51,9 @@ nonisolated enum ClaudeCommandBuilder {
                     "--max-turns", String(config.maxTurns),
                     "--permission-mode", config.permissionMode.rawValue]
         if let tools = config.builtinTools { args += ["--tools", tools.joined(separator: ",")] }
-        if config.isolated { args += ["--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"] }
+        // Never load project/local settings (hooks, apiKeyHelper, MCP, allow rules) from a repo the stages edit.
+        args += config.isolated ? ["--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"]
+                                : ["--strict-mcp-config", "--setting-sources", "user"]
         if let prompt = config.appendSystemPrompt { args += ["--append-system-prompt", prompt] }
         if !config.allowedTools.isEmpty { args += ["--allowedTools", config.allowedTools.joined(separator: ",")] }
         if !config.disallowedTools.isEmpty { args += ["--disallowedTools", config.disallowedTools.joined(separator: ",")] }

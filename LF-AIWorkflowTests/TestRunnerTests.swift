@@ -95,16 +95,57 @@ struct TestRunnerTests {
         #expect(cmd.executable.path == script.path)
     }
 
-    @Test func overrideWinsOverDetection() async throws {
+    @Test func detectionIgnoresAnyOverrideOnlyTheEngineSnapshotSuppliesOne() async throws {
         let dir = try project(["Package.swift"])
         defer { try? FileManager.default.removeItem(at: dir) }
-        let runner = TestRunner(override: "echo custom", environment: env)
-        let cmd = try #require(await runner.detect(in: dir))
-        #expect(cmd.display == "echo custom")
-        #expect(cmd.executable.path == "/bin/zsh")
-        #expect(cmd.arguments == ["-c", "echo custom"])
-        let plain = TestRunner(environment: env)
-        #expect(await plain.detect(in: dir)?.display == "swift test")
+        let runner = TestRunner(environment: env)
+        #expect(await runner.detect(in: dir)?.display == "swift test")
+    }
+
+    // MARK: hardening
+
+    @Test func strippedEnvironmentDropsCredentialsKeepsBasics() {
+        let out = TestRunner.stripped([
+            "PATH": "/usr/bin", "HOME": "/h", "LANG": "en_US.UTF-8", "SSH_AUTH_SOCK": "/s", "NPM_TOKEN": "t",
+            "MY_SECRET": "s", "DB_PASSWORD": "p", "STRIPE_API_KEY": "k", "github_pat": "x", "GITHUB_TOKEN": "g",
+            "AWS_REGION": "r", "ANTHROPIC_API_KEY": "a", "GH_HOST": "h",
+        ])
+        #expect(Set(out.keys) == ["PATH", "HOME", "LANG"])
+    }
+
+    @Test func runUsesStrippedEnvironment() async throws {
+        let (dir, cmd) = try script("echo \"error: [$NPM_TOKEN][$SSH_AUTH_SOCK][$KEEP_ME]\"\nexit 1")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let leaky = env.merging(["NPM_TOKEN": "hunter2", "SSH_AUTH_SOCK": "/sock", "KEEP_ME": "yes"]) { $1 }
+        guard case .failed(_, let errors, _) = await TestRunner(environment: leaky).run(cmd, in: dir) else {
+            Issue.record("expected failure"); return
+        }
+        #expect(errors.contains("error: [][][yes]"))
+    }
+
+    @Test func gitPushCannotSucceedFromATestRun() async throws {
+        let remote = try TestEnv.makeTempDir()
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: remote); try? FileManager.default.removeItem(at: repo) }
+        try await TestEnv.git(["init", "-q", "--bare", "-b", "main"], in: remote)
+        try await TestEnv.git(["remote", "add", "origin", remote.path], in: repo)
+        let push = TestCommand(executable: URL(fileURLWithPath: "/usr/bin/git"), arguments: ["push", "origin", "HEAD:main"], display: "git push")
+        let runner = TestRunner(environment: TestEnv.git)
+        guard case .failed = await runner.run(push, in: repo) else { Issue.record("push must fail"); return }
+        await #expect(throws: (any Error).self) { try await TestEnv.git(["rev-parse", "--verify", "-q", "main"], in: remote) }
+    }
+
+    @Test func detectedCommandsNameTheirEntryPoint() throws {
+        func entry(_ files: [String]) throws -> String? {
+            let dir = try project(files)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            return TestRunner.detect(in: dir)?.entryPoint
+        }
+        #expect(try entry(["scripts/check.sh"]) == "scripts/check.sh")
+        #expect(try entry(["Makefile"]) == "Makefile")
+        #expect(try entry(["Package.swift"]) == "Package.swift")
+        #expect(try entry(["gradlew"]) == "gradlew")
+        #expect(try entry(["App.xcodeproj/"]) == "App.xcodeproj/project.pbxproj")
     }
 
     // MARK: xcodebuild (TD-023)

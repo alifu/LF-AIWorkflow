@@ -163,4 +163,20 @@ import Foundation
         let p = row(PreviewFixtures.task(state: .code)).progress ?? -1
         #expect(p > 0 && p < 1)
     }
+
+    // MARK: resume raise (HIGH-A)
+
+    @Test func budgetWaitResumeRaisesTheBudgetWithALabelNamingTheStep() {
+        let r = row(PreviewFixtures.task(state: .awaitingInput, wait: .budgetExceeded(spent: 500_000, limit: 500_000), resume: .code))
+        #expect(r.actions.contains(.resume))
+        #expect(r.resumeRaiseTokens == TaskRowModel.budgetResumeStep)
+        #expect(r.resumeRaiseTokens > 0)
+        #expect(r.resumeLabel == "Resume +\(TaskFormat.tokens(TaskRowModel.budgetResumeStep)) tokens")
+    }
+
+    @Test func otherWaitsResumePlainlyWithoutRaisingTheBudget() {
+        let r = row(PreviewFixtures.task(state: .awaitingInput, wait: .testTimedOut, resume: .test))
+        #expect(r.resumeRaiseTokens == 0)
+        #expect(r.resumeLabel == "Resume")
+    }
 }

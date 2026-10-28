@@ -13,6 +13,9 @@ struct ClaudeCommandBuilderTests {
     private func expectedArguments(_ c: StageConfig, resume: String? = nil, dirs: [String] = []) -> [String] {
         var a = ["-p", "--output-format", "stream-json", "--verbose", "--model", c.model,
                  "--max-turns", String(c.maxTurns), "--permission-mode", c.permissionMode.rawValue]
+        if let t = c.builtinTools { a += ["--tools", t.joined(separator: ",")] }
+        a += c.isolated ? ["--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"]
+                        : ["--strict-mcp-config", "--setting-sources", "user"]
         if !c.allowedTools.isEmpty { a += ["--allowedTools", c.allowedTools.joined(separator: ",")] }
         if !c.disallowedTools.isEmpty { a += ["--disallowedTools", c.disallowedTools.joined(separator: ",")] }
         for d in dirs { a += ["--add-dir", d] }
@@ -40,6 +43,20 @@ struct ClaudeCommandBuilderTests {
         let args = try ClaudeCommandBuilder.arguments(config: config, sessionId: nil, addDirs: [])
         let i = try #require(args.firstIndex(of: "--allowedTools"))
         #expect(args[i + 1] == "Read,Grep,Glob,Bash(git diff:*)")
+    }
+
+    @Test(arguments: WorkflowStage.allCases)
+    func projectAndLocalSettingsAndMcpAreNeverLoaded(stage: WorkflowStage) throws {
+        let args = try ClaudeCommandBuilder.arguments(config: policy.config(for: stage), sessionId: nil, addDirs: [])
+        #expect(args.contains("--strict-mcp-config"))
+        let i = try #require(args.firstIndex(of: "--setting-sources"))
+        #expect(args[i + 1] == "user")
+    }
+
+    @Test func reviewHasExplicitReadOnlyToolList() throws {
+        let args = try ClaudeCommandBuilder.arguments(config: policy.config(for: .review), sessionId: nil, addDirs: [])
+        let i = try #require(args.firstIndex(of: "--tools"))
+        #expect(args[i + 1] == "Read,Grep,Glob,Bash")
     }
 
     @Test func emptyToolListsOmitFlags() throws {

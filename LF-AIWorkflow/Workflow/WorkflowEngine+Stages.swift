@@ -56,7 +56,9 @@ extension WorkflowEngine {
 
     /// Complexity: O(prompt) time, O(prompt) space
     func runCode(_ id: UUID) async {
-        _ = await resolveTestCommand(id)
+        if let command = await resolveTestCommand(id), entryFingerprints[id] == nil, let task = tasks[id] {
+            entryFingerprints[id] = TestEntryGuard.fingerprint(of: command, in: task.workingDirectory)
+        }
         guard isCurrent(id, .code) else { return }
         guard await runClaude(id, .code) != nil else { return }
         await deps.graph.update(root: tasks[id]?.workingDirectory ?? URL(fileURLWithPath: "/"))
@@ -72,6 +74,10 @@ extension WorkflowEngine {
         guard let command = await resolveTestCommand(id) else {
             if isCurrent(id, .test) { park(id, .noTestCommand) }
             return
+        }
+        if let changed = TestEntryGuard.modifiedEntryPoint(of: command, in: task.workingDirectory,
+                                                           since: entryFingerprints[id]) {
+            park(id, .testEntryModified(changed)); return
         }
         let outcome = await deps.tests.run(command, in: task.workingDirectory)
         guard isCurrent(id, .test) else { return }
@@ -216,6 +222,12 @@ extension WorkflowEngine {
         StageConfig(model: model, escalationModel: base.escalationModel, permissionMode: base.permissionMode,
                     allowedTools: tools, disallowedTools: base.disallowedTools, maxTurns: base.maxTurns,
                     builtinTools: base.builtinTools, isolated: base.isolated, appendSystemPrompt: base.appendSystemPrompt)
+    }
+
+    /// The user reviewed the changed test entry point: it becomes the new baseline.
+    func acceptCurrentTestEntryPoint(_ id: UUID) {
+        guard let command = testCommands[id], let task = tasks[id] else { return }
+        entryFingerprints[id] = TestEntryGuard.fingerprint(of: command, in: task.workingDirectory)
     }
 
     /// Override first, then detection. Caches the command and its display on the task.
