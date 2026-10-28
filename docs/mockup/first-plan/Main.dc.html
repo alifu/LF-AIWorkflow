@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LF-AIWorkflow prototype</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#0A63D6}a:hover{color:#084C9E}
+button,input,select,textarea{font-family:inherit}
+.bob{animation:bob 1.1s ease-in-out infinite}
+.hop{animation:hop 1.6s ease-in-out infinite}
+.tilt{animation:tilt 2.4s ease-in-out infinite;transform-origin:50% 90%}
+.shake{animation:shake .5s ease-in-out 3}
+.blink{animation:blink 4s infinite}
+.pulse{animation:pulse 1.2s ease-in-out infinite}
+.toastIn{animation:toastIn .28s cubic-bezier(.2,.9,.3,1.35)}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes hop{0%,78%,100%{transform:translateY(0)}88%{transform:translateY(-4px)}}
+@keyframes tilt{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
+@keyframes blink{0%,46%,50%,100%{transform:scaleY(1)}48%{transform:scaleY(.1)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes toastIn{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion: reduce){.bob,.hop,.tilt,.shake,.blink,.pulse,.toastIn{animation:none}}
+</style>
+</helmet>
+<div style="width:1280px;height:820px;position:relative;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;{{desktopStyle}}">
+
+  <div style="position:absolute;left:0;top:0;width:1280px;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;box-sizing:border-box;font-size:13px;{{menuStyle}}">
+    <div style="display:flex;gap:18px;align-items:center"><span style="font-weight:700">Finder</span><span>File</span><span>Edit</span><span>View</span><span>Go</span><span>Window</span><span>Help</span></div>
+    <div style="display:flex;gap:16px;align-items:center"><span>Tue 28 Oct</span><span>10:24</span></div>
+  </div>
+
+  <sc-if value="{{notch}}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;left:540px;top:0;width:200px;height:34px;background:#000;border-radius:0 0 12px 12px;z-index:5"></div>
+  </sc-if>
+
+  <sc-if value="{{settingsOpen}}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:40px;top:330px;width:580px;height:450px;display:flex;flex-direction:column;overflow:hidden;z-index:8;{{t.win}}">
+      <div style="height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;flex:none;{{t.winBar}}">
+        <button onClick="{{closeSettings}}" aria-label="Close settings" style="width:13px;height:13px;border-radius:50%;background:#FF5F57;border:1px solid rgba(0,0,0,.25);padding:0;cursor:pointer"></button>
+        <span aria-hidden="true" style="width:13px;height:13px;border-radius:50%;background:#FEBC2E;border:1px solid rgba(0,0,0,.2)"></span>
+        <span aria-hidden="true" style="width:13px;height:13px;border-radius:50%;background:#28C840;border:1px solid rgba(0,0,0,.2)"></span>
+        <span style="flex:1;text-align:center;margin-right:58px;{{t.head}}">Settings</span>
+      </div>
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="width:150px;flex:none;padding:10px 8px;display:flex;flex-direction:column;gap:3px;box-sizing:border-box;{{t.side}}">
+          <sc-for list="{{settingsNav}}" as="n" hint-placeholder-count="5">
+            <button onClick="{{n.pick}}" style="{{n.style}}">{{n.name}}</button>
+          </sc-for>
+        </div>
+        <div style="flex:1;padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:14px;{{t.body}}">
+
+          <sc-if value="{{sv.general}}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="{{t.head}}">Art style</div>
+              <div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:12px">
+                <button onClick="{{pickClassic}}" aria-pressed="{{isClassic}}" style="{{classicCard}}">
+                  <span style="display:block;height:66px;border-radius:9px;background:#F5F5F7;padding:10px;box-sizing:border-box">
+                    <span style="display:block;height:18px;border-radius:6px;background:#FFFFFF;border:1px solid #DCDCE1"></span>
+                    <span style="display:flex;gap:4px;margin-top:8px"><span style="width:34px;height:12px;border-radius:6px;background:#0A63D6"></span><span style="width:28px;height:12px;border-radius:6px;background:#ECECF0"></span></span>
+                  </span>
+                  <span style="display:block;margin-top:8px;font-weight:700;font-size:13px">Classic</span>
+                  <span style="display:block;font-size:11.5px;opacity:.8">Native macOS, calm</span>
+                </button>
+                <button onClick="{{pickPop}}" aria-pressed="{{isPop}}" style="{{popCard}}">
+                  <span style="display:block;height:66px;border:2.5px solid #111;border-radius:5px;background:radial-gradient(rgba(0,0,0,.14) 1.2px, transparent 1.7px) 0 0/8px 8px, #FFF4D6;padding:8px;box-sizing:border-box;box-shadow:3px 3px 0 #111">
+                    <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;border:2px solid #111;border-radius:3px;background:#FFE014;color:#111;font-weight:900;font-size:10px">POW!</span>
+                    <span style="display:flex;gap:4px;margin-top:6px"><span style="width:30px;height:12px;border:2px solid #111;background:#FF3EA5"></span><span style="width:30px;height:12px;border:2px solid #111;background:#1EC8FF"></span></span>
+                  </span>
+                  <span style="display:block;margin-top:8px;font-weight:900;font-size:13px;text-transform:uppercase">Pop Art</span>
+                  <span style="display:block;font-size:11.5px;opacity:.8">Bold comic-book look</span>
+                </button>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="{{t.head}}">Appearance</div>
+              <div style="{{t.segWrap}}">
+                <sc-for list="{{schemes}}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="{{o.style}}">{{o.name}}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="{{t.head}}">Shortcuts</div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span>Expand panel</span><span style="{{t.kbd}}">⌥⌘Space</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span>Save Safari tab to Research inbox</span><span style="{{t.kbd}}">⌃⌥⌘C</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" checked="{{launchAtLogin}}" onChange="{{toggleLaunch}}" style="{{t.check}}">Launch at login</label>
+              <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" checked="{{reduceAnim}}" onChange="{{toggleReduce}}" style="{{t.check}}">Reduce animations</label>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{sv.tools}}" hint-placeholder-val="{{ false }}">
+            <div style="{{t.head}}">Tools</div>
+            <sc-for list="{{toolRows}}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;{{t.surface}}">
+                <span style="{{r.badge}}">{{r.status}}</span>
+                <span style="flex:1;display:flex;flex-direction:column"><span style="font-weight:600">{{r.name}}</span><span style="font-family:ui-monospace,Menlo,monospace;{{t.small}}">{{r.path}}</span></span>
+                <span style="{{t.small}}">{{r.ver}}</span>
+              </div>
+            </sc-for>
+            <div><button onClick="{{redetect}}" style="{{t.btn}}">Re-detect</button></div>
+          </sc-if>
+
+          <sc-if value="{{sv.stages}}" hint-placeholder-val="{{ false }}">
+            <div style="{{t.head}}">Stage policy</div>
+            <div style="overflow-x:auto">
+              <table style="border-collapse:collapse;width:100%">
+                <thead><tr><th style="{{t.th}}">Stage</th><th style="{{t.th}}">Model</th><th style="{{t.th}}">Turns</th><th style="{{t.th}}">Allowed tools</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{stageRows}}" as="r" hint-placeholder-count="6">
+                    <tr><td style="{{t.td}}">{{r.stage}}</td><td style="{{t.td}}">{{r.model}}</td><td style="{{t.td}}">{{r.turns}}</td><td style="{{t.td}}">{{r.tools}}</td></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="{{t.small}}">Always denied: git push, git merge, rm -rf, reading .env files.</div>
+          </sc-if>
+
+          <sc-if value="{{sv.budgets}}" hint-placeholder-val="{{ false }}">
+            <div style="{{t.head}}">Budgets</div>
+            <sc-for list="{{budgetRows}}" as="r" hint-placeholder-count="7">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;{{t.rowLine}}"><span>{{r.label}}</span><span style="font-weight:700">{{r.value}}</span></div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{sv.projects}}" hint-placeholder-val="{{ false }}">
+            <div style="{{t.head}}">Projects</div>
+            <sc-for list="{{projectRows}}" as="r" hint-placeholder-count="2">
+              <div style="padding:10px 12px;display:flex;flex-direction:column;gap:4px;{{t.surface}}">
+                <span style="font-weight:700">{{r.name}}</span>
+                <span style="font-family:ui-monospace,Menlo,monospace;{{t.small}}">{{r.path}}</span>
+                <span style="{{t.small}}">Test: {{r.cmd}} · Worktree: {{r.wt}} · Skills: {{r.skills}}</span>
+              </div>
+            </sc-for>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{peekVisible}}" hint-placeholder-val="{{ false }}">
+    <button onClick="{{onStripClick}}" onMouseEnter="{{onEnter}}" style="{{peekStyle}}">{{peekText}}</button>
+  </sc-if>
+
+  <div style="{{panelStyle}}" onMouseEnter="{{onEnter}}" onMouseLeave="{{onLeave}}">
+
+    <sc-if value="{{showStrip}}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{onStripClick}}" aria-label="{{stripLabel}}" style="all:unset;display:block;width:100%;height:100%;cursor:pointer"></button>
+    </sc-if>
+
+    <sc-if value="{{showHalf}}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{onStripClick}}" aria-label="Expand LF-AIWorkflow" style="all:unset;width:100%;height:100%;cursor:pointer;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding-bottom:8px;box-sizing:border-box">
+        <span class="{{ms.anim}}" style="display:inline-block;flex:none"><span style="{{ms.head}}"><span style="{{ms.hair}}"></span><span class="blink" style="{{ms.eyeL}}"></span><span class="blink" style="{{ms.eyeR}}"></span><span style="{{ms.cheek}}"></span><span style="{{ms.mouth}}"></span></span></span>
+        <span style="display:flex;gap:5px;align-items:center;font-size:11px;font-weight:600"><span class="pulse" style="{{wingDot}}"></span>{{wingStage}} · {{activeCount}}</span>
+      </button>
+    </sc-if>
+
+    <sc-if value="{{expanded}}" hint-placeholder-val="{{ false }}">
+      <div style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 12px;box-sizing:border-box;color:#fff">
+        <div style="display:flex;align-items:center;gap:8px;{{t.wingAccent}}">
+          <span class="{{ms.anim}}" style="display:inline-block;flex:none"><span style="{{ms.head}}"><span style="{{ms.hair}}"></span><span class="blink" style="{{ms.eyeL}}"></span><span class="blink" style="{{ms.eyeR}}"></span><span style="{{ms.cheek}}"></span><span style="{{ms.mouth}}"></span></span></span>
+          <span style="font-size:12px;font-weight:700;{{t.wingText}}">LF-AIWorkflow</span>
+          <span style="font-size:11.5px;color:#B9B9C2">MyApp ▾</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:2px">
+          <button onClick="{{togglePin}}" aria-label="Pin panel open" aria-pressed="{{pinned}}" style="{{pinStyle}}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"></path><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"></path></svg>
+          </button>
+          <button onClick="{{openSettings}}" aria-label="Open settings" style="{{t.iconBtn}}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+          </button>
+          <button onClick="{{collapse}}" aria-label="Collapse panel" style="{{t.iconBtn}}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="position:relative;margin:0 8px;height:478px;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;{{t.card}}">
+
+        <sc-if value="{{v.tabs}}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px 8px">
+            <div role="tablist" aria-label="Panel" style="{{t.segWrap}}">
+              <sc-for list="{{tabs}}" as="tb" hint-placeholder-count="3">
+                <button role="tab" aria-selected="{{tb.on}}" onClick="{{tb.pick}}" style="{{tb.style}}">{{tb.name}}</button>
+              </sc-for>
+            </div>
+            <span style="{{t.small}}">{{activeCount}} active</span>
+          </div>
+
+          <sc-if value="{{tabTasks}}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1;overflow:auto;padding:4px 18px 14px 14px;display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{rows}}" as="row" hint-placeholder-count="4">
+                <div style="padding:10px 12px;display:flex;flex-direction:column;gap:7px;flex:none;{{t.surface}}">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                    <button onClick="{{row.open}}" style="all:unset;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;{{t.head}}">{{row.title}}</button>
+                    <div style="display:flex;gap:4px;flex:none">
+                      <sc-for list="{{row.chips}}" as="c" hint-placeholder-count="5"><span style="{{c.style}}">{{c.label}}</span></sc-for>
+                    </div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;gap:10px;{{t.small}}"><span>{{row.statusLine}}</span><span style="white-space:nowrap">{{row.meta}}</span></div>
+                  <sc-if value="{{row.isRunning}}" hint-placeholder-val="{{ true }}">
+                    <div style="{{t.track}}"><div style="{{row.fill}}"></div></div>
+                  </sc-if>
+                  <sc-if value="{{row.runningPlanBtn}}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{row.open}}" style="{{t.btn}}">Details</button><button onClick="{{row.viewPlan}}" style="{{t.btn}}">View plan</button></div>
+                  </sc-if>
+                  <sc-if value="{{row.isWaiting}}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{row.approve}}" style="{{t.btnPrimary}}">Approve</button><button onClick="{{row.openPlan}}" style="{{t.btn}}">Open plan</button><button onClick="{{row.cancel}}" style="{{t.btn}}">Cancel</button></div>
+                  </sc-if>
+                  <sc-if value="{{row.isDoneCode}}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{row.open}}" style="{{t.btn}}">View review</button><sc-if value="{{row.hasPlan}}" hint-placeholder-val="{{ true }}"><button onClick="{{row.viewPlan}}" style="{{t.btn}}">View plan</button></sc-if><button onClick="{{row.openWorktree}}" style="{{t.btn}}">Open worktree</button></div>
+                  </sc-if>
+                  <sc-if value="{{row.isDoneResearch}}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{row.open}}" style="{{t.btn}}">View report</button><button onClick="{{row.openFolder}}" style="{{t.btn}}">Open folder</button></div>
+                  </sc-if>
+                </div>
+              </sc-for>
+              <sc-if value="{{noTasks}}" hint-placeholder-val="{{ false }}">
+                <div style="padding:40px 0;text-align:center;{{t.small}}">No tasks. Open the New tab to start one.</div>
+              </sc-if>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;{{t.divider}}">
+              <span style="{{t.small}}">Today: {{todayTok}} tokens · budget 200k</span>
+              <button onClick="{{clearDone}}" style="{{t.btn}}">Clear done</button>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{tabNew}}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;overflow:auto;padding:4px 14px 14px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="{{t.segWrap}}">
+                  <button onClick="{{modeCode}}" aria-pressed="{{isCode}}" style="{{modeCodeStyle}}">Code</button>
+                  <button onClick="{{modeResearch}}" aria-pressed="{{isResearch}}" style="{{modeResearchStyle}}">Research</button>
+                </div>
+                <span style="{{t.small}}">{{modeHint}}</span>
+              </div>
+
+              <sc-if value="{{isCode}}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <textarea aria-label="Prompt" value="{{prompt}}" onChange="{{onPrompt}}" rows="3" style="width:100%;resize:none;{{t.input}}"></textarea>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span style="width:72px;{{t.small}}">Documents</span>
+                    <sc-for list="{{docs}}" as="d" hint-placeholder-count="2">
+                      <span style="{{t.chipFile}}">{{d.name}}<button onClick="{{d.remove}}" aria-label="{{d.label}}" style="{{t.chipX}}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"></path></svg></button></span>
+                    </sc-for>
+                    <button onClick="{{addDoc}}" style="{{t.btn}}">+ Add</button>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span style="width:72px;{{t.small}}">Skills</span>
+                    <sc-for list="{{skills}}" as="d" hint-placeholder-count="2">
+                      <span style="{{t.chipFile}}">{{d.name}}<button onClick="{{d.remove}}" aria-label="{{d.label}}" style="{{t.chipX}}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"></path></svg></button></span>
+                    </sc-for>
+                    <button onClick="{{addSkill}}" style="{{t.btn}}">+ Folder</button>
+                  </div>
+                  <div style="padding:8px 10px;display:flex;justify-content:space-between;{{t.surface}}">
+                    <span style="{{t.small}}">Project: ~/Projects/MyApp</span>
+                    <span style="{{t.small}}">Rules: CLAUDE.md OK (612 tok) · Test: ./gradlew check</span>
+                  </div>
+                  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:12.5px">
+                    <span style="{{t.small}}">Start at</span>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="startAt" checked="{{startPlan}}" onChange="{{setStartPlan}}" style="{{t.check}}">Plan</label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="startAt" checked="{{startCodeOn}}" onChange="{{setStartCode}}" style="{{t.check}}">Code</label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" checked="{{worktree}}" onChange="{{toggleWorktree}}" style="{{t.check}}">Separate worktree</label>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{isResearch}}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:9px">
+                  <textarea aria-label="Research question" value="{{rprompt}}" onChange="{{onRPrompt}}" rows="2" style="width:100%;resize:none;{{t.input}}"></textarea>
+                  <div style="padding:6px 10px;display:flex;flex-direction:column;gap:2px;{{t.surface}}">
+                    <sc-for list="{{sourceRows}}" as="src" hint-placeholder-count="3">
+                      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0"><input type="checkbox" checked="{{src.on}}" onChange="{{src.toggle}}" style="{{t.check}}"><span style="flex:1">{{src.url}}</span><span style="{{t.small}}">{{src.where}}</span></label>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button onClick="{{addUrl}}" style="{{t.btn}}">+ Add URL</button>
+                    <button onClick="{{useInbox}}" style="{{t.btn}}">Use inbox ({{inboxCount}})</button>
+                  </div>
+                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px">
+                    <label style="display:flex;gap:6px;align-items:center">Crawl depth<select value="{{depth}}" onChange="{{onDepth}}" style="height:26px;padding:0 6px;{{t.input}}"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
+                    <label style="display:flex;gap:6px;align-items:center">Max pages<select value="{{maxPages}}" onChange="{{onMaxPages}}" style="height:26px;padding:0 6px;{{t.input}}"><option value="5">5</option><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" checked="{{sameSite}}" onChange="{{toggleSameSite}}" style="{{t.check}}">Same site only</label>
+                  </div>
+                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px">
+                    <span style="{{t.small}}">Output</span>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="output" checked="{{outTable}}" onChange="{{setOutTable}}" style="{{t.check}}">Comparison table</label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="output" checked="{{outReport}}" onChange="{{setOutReport}}" style="{{t.check}}">Report</label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="output" checked="{{outBoth}}" onChange="{{setOutBoth}}" style="{{t.check}}">Both</label>
+                    <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" checked="{{deep}}" onChange="{{toggleDeep}}" style="{{t.check}}">Deep analysis (Opus)</label>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;{{t.divider}}">
+              <span style="{{t.small}}">{{estText}}</span>
+              <sc-if value="{{isCode}}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;gap:8px"><button onClick="{{goTasks}}" style="{{t.btn}}">Cancel</button><button onClick="{{startCode}}" style="{{t.btnPrimary}}">Start ⌘↩</button></div>
+              </sc-if>
+              <sc-if value="{{isResearch}}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:8px"><button onClick="{{openPreview}}" style="{{t.btn}}">Preview</button><button onClick="{{runResearch}}" style="{{t.btnPrimary}}">Run</button></div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{tabTerminal}}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px;padding:4px 14px 14px;min-height:0">
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="{{t.small}}">Live output · Fix crash on rotate · read-only</span><button onClick="{{copyLog}}" style="{{t.btn}}">Copy</button></div>
+              <div style="flex:1;{{t.log}}">
+                <sc-for list="{{terminalLines}}" as="l" hint-placeholder-count="8"><div style="{{l.style}}">{{l.text}}</div></sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{v.detail}}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px 8px;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><button onClick="{{back}}" style="{{t.btn}}">‹ Back</button><span style="{{t.h2}}">{{detail.title}}</span></div>
+            <div style="display:flex;gap:8px;flex:none"><sc-if value="{{detail.hasPlan}}" hint-placeholder-val="{{ true }}"><button onClick="{{detail.viewPlan}}" style="{{t.btn}}">View plan</button></sc-if><button onClick="{{detail.cancel}}" style="{{t.btn}}">Cancel task</button></div>
+          </div>
+          <div style="display:flex;gap:6px;padding:4px 14px 10px">
+            <sc-for list="{{detail.timeline}}" as="c" hint-placeholder-count="5">
+              <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:flex-start"><span style="{{c.style}}">{{c.label}}</span><span style="{{t.small}}">{{c.sub}}</span></div>
+            </sc-for>
+          </div>
+          <div style="flex:1;display:flex;gap:12px;padding:0 14px 12px;min-height:0">
+            <div style="width:120px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;{{t.surface}}">
+              <span class="{{mb.anim}}" style="display:inline-block"><span style="{{mb.head}}"><span style="{{mb.hair}}"></span><span class="blink" style="{{mb.eyeL}}"></span><span class="blink" style="{{mb.eyeR}}"></span><span style="{{mb.cheek}}"></span><span style="{{mb.mouth}}"></span><sc-if value="{{mb.sweat}}" hint-placeholder-val="{{ false }}"><span style="{{mb.sweatStyle}}"></span></sc-if><sc-if value="{{mb.bang}}" hint-placeholder-val="{{ false }}"><span style="{{mb.bangStyle}}">!</span></sc-if></span></span>
+              <span style="{{deskStyle}}"></span>
+              <span style="{{laptopStyle}}"></span>
+              <span style="margin-top:8px;{{t.small}}">{{detail.caption}}</span>
+            </div>
+            <div style="flex:1;{{t.log}}">
+              <sc-for list="{{detail.log}}" as="l" hint-placeholder-count="6"><div style="{{l.style}}">{{l.text}}</div></sc-for>
+            </div>
+          </div>
+          <div style="padding:10px 14px;flex:none;font-family:ui-monospace,Menlo,monospace;{{t.small}};{{t.divider}}">{{detail.footer}}</div>
+        </sc-if>
+
+        <sc-if value="{{v.approval}}" hint-placeholder-val="{{ false }}">
+          <div style="padding:14px 14px 8px;display:flex;flex-direction:column;gap:4px">
+            <span style="{{t.h2}}">Plan ready: {{approval.title}}</span>
+            <span style="font-family:ui-monospace,Menlo,monospace;{{t.small}}">{{approval.path}} · 5 steps · {{approval.tok}} tok</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:4px 18px 12px 14px">
+            <ol style="margin:0;padding:12px 14px 12px 34px;display:flex;flex-direction:column;gap:8px;{{t.surface}};{{t.body}}">
+              <sc-for list="{{approval.steps}}" as="st" hint-placeholder-count="5"><li>{{st.text}}</li></sc-for>
+            </ol>
+            <div style="margin-top:10px;{{t.small}}">Approving starts Code with sonnet in a new worktree. Nothing is pushed or merged.</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;{{t.divider}}">
+            <button onClick="{{openEditor}}" style="{{t.btn}}">Open in editor</button>
+            <div style="display:flex;gap:8px"><button onClick="{{back}}" style="{{t.btn}}">Back</button><button onClick="{{approval.cancel}}" style="{{t.btn}}">Cancel task</button><button onClick="{{approval.approve}}" style="{{t.btnPrimary}}">Approve ⌘↩</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{v.plan}}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px 6px;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><button onClick="{{planView.back}}" style="{{t.btn}}">‹ Back</button><span style="{{t.h2}}">Plan: {{planView.title}}</span></div>
+            <span style="{{planView.badge}}">{{planView.badgeText}}</span>
+          </div>
+          <div style="padding:0 14px 8px;font-family:ui-monospace,Menlo,monospace;{{t.small}}">{{planView.path}} · {{planView.meta}}</div>
+          <div style="flex:1;overflow:auto;padding:4px 18px 12px 14px">
+            <ol style="margin:0;padding:12px 14px 12px 34px;display:flex;flex-direction:column;gap:8px;{{t.surface}};{{t.body}}">
+              <sc-for list="{{planView.steps}}" as="st" hint-placeholder-count="5"><li>{{st.text}}</li></sc-for>
+            </ol>
+            <div style="margin-top:10px;{{t.small}}">{{planView.note}}</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;{{t.divider}}">
+            <div style="display:flex;gap:8px"><button onClick="{{openEditor}}" style="{{t.btn}}">Open in editor</button><button onClick="{{copyPlanPath}}" style="{{t.btn}}">Copy path</button></div>
+            <button onClick="{{planView.back}}" style="{{t.btn}}">Done</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{v.review}}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px 8px;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px"><button onClick="{{back}}" style="{{t.btn}}">‹ Back</button><span style="{{t.h2}}">Review: Add dark mode</span></div>
+            <span style="{{t.small}}">opus · 3.4k tok · 6 findings</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:4px 18px 12px 14px;display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{findings}}" as="f" hint-placeholder-count="6">
+              <div style="display:flex;gap:10px;align-items:center;padding:8px 10px;flex:none;{{t.surface}}">
+                <span style="{{f.sevStyle}}">{{f.sev}}</span>
+                <span style="width:150px;flex:none;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{f.file}}</span>
+                <span style="flex:1;{{t.body}}">{{f.issue}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;gap:8px;{{t.divider}}">
+            <span style="font-family:ui-monospace,Menlo,monospace;{{t.small}}">.claude/reviews/add-dark-mode.md</span>
+            <div style="display:flex;gap:8px"><button onClick="{{reviewPlan}}" style="{{t.btn}}">View plan</button><button onClick="{{openWorktreeAny}}" style="{{t.btn}}">Open worktree</button><button onClick="{{sendHighToFix}}" style="{{t.btnPrimary}}">Send HIGH to Fix</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{v.preview}}" hint-placeholder-val="{{ false }}">
+          <div style="padding:14px 14px 8px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px"><button onClick="{{backToNew}}" style="{{t.btn}}">‹ Back</button><span style="{{t.h2}}">Check sources</span></div>
+            <span style="{{t.small}}">{{preview.summary}}</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:4px 18px 12px 14px;display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{preview.rows}}" as="p" hint-placeholder-count="4">
+              <div style="display:flex;gap:10px;align-items:center;padding:8px 10px;flex:none;{{t.surface}}">
+                <span style="{{p.badge}}">{{p.status}}</span>
+                <span style="flex:1;display:flex;flex-direction:column;min-width:0"><span style="font-weight:700;font-size:12.5px">{{p.title}}</span><span style="{{t.small}}">{{p.url}}</span></span>
+                <span style="{{t.small}}">{{p.tok}}</span>
+                <span style="width:90px;text-align:right;{{t.small}}">{{p.note}}</span>
+              </div>
+            </sc-for>
+            <div style="{{t.small}}">Removed as boilerplate: {{preview.boiler}} lines (menus, footers, cookie banners). Raw HTML, images and cookies are never captured.</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex:none;{{t.divider}}">
+            <button onClick="{{openFolder}}" style="{{t.btn}}">Open folder</button>
+            <div style="display:flex;gap:8px"><button onClick="{{backToNew}}" style="{{t.btn}}">Cancel</button><button onClick="{{runResearch}}" style="{{t.btnPrimary}}">Send ⌘↩</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{v.report}}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px 8px;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px"><button onClick="{{back}}" style="{{t.btn}}">‹ Back</button><span style="{{t.h2}}">Laptop comparison</span></div>
+            <span style="{{t.small}}">sonnet · {{reportTok}} tok · done</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:4px 18px 10px 14px;display:flex;flex-direction:column;gap:10px;{{t.body}}">
+            <div style="padding:10px 12px;{{t.surface}}">
+              <div style="font-weight:700;margin-bottom:8px">Best value under $1,500: MacBook Air 13" [1]</div>
+              <div style="overflow-x:auto">
+                <table style="border-collapse:collapse;width:100%">
+                  <thead><tr><th style="{{t.th}}">Model</th><th style="{{t.th}}">Price</th><th style="{{t.th}}">RAM</th><th style="{{t.th}}">Battery</th><th style="{{t.th}}">Source</th></tr></thead>
+                  <tbody>
+                    <sc-for list="{{reportRows}}" as="r" hint-placeholder-count="2"><tr><td style="{{t.td}}">{{r.model}}</td><td style="{{t.td}}">{{r.price}}</td><td style="{{t.td}}">{{r.ram}}</td><td style="{{t.td}}">{{r.battery}}</td><td style="{{t.td}}">{{r.src}}</td></tr></sc-for>
+                  </tbody>
+                </table>
+              </div>
+              <div style="margin-top:8px">Differences: the XPS 13 has a sharper 2.8K screen [2]; the MacBook Air is $200 cheaper and lasts about 5 hours longer [1].</div>
+              <div style="margin-top:6px;{{t.small}}">Sources: [1] apple.com/macbook-air · [2] dell.com/xps-13</div>
+            </div>
+            <sc-for list="{{followups}}" as="fu" hint-placeholder-count="1">
+              <div style="padding:10px 12px;{{t.surface}}"><div style="font-weight:700">{{fu.q}}</div><div style="margin-top:4px">{{fu.a}}</div></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;flex:none;{{t.divider}}">
+            <div style="display:flex;gap:8px"><input aria-label="Follow-up question" value="{{fq}}" onChange="{{onFq}}" placeholder="Ask a follow-up…" style="flex:1;height:32px;{{t.input}}"><button onClick="{{ask}}" style="{{t.btnPrimary}}">Ask</button></div>
+            <div style="display:flex;gap:8px"><button onClick="{{exportCsv}}" style="{{t.btn}}">Export CSV</button><button onClick="{{openFolder}}" style="{{t.btn}}">Open folder</button><button onClick="{{recapture}}" style="{{t.btn}}">Re-capture</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{toastClassic}}" hint-placeholder-val="{{ false }}">
+          <div class="toastIn" style="position:absolute;left:0;right:0;bottom:64px;margin:0 auto;width:max-content;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:600;{{toastClassicStyle}}">{{toast}}</div>
+        </sc-if>
+        <sc-if value="{{toastPop}}" hint-placeholder-val="{{ false }}">
+          <div class="toastIn" style="position:absolute;right:22px;bottom:58px;width:160px;height:116px">
+            <div style="position:absolute;left:0;top:0;width:160px;height:116px;background:#111;clip-path:polygon(50% 0%, 61% 20%, 82% 8%, 78% 32%, 100% 38%, 83% 54%, 96% 76%, 72% 74%, 66% 100%, 50% 82%, 34% 100%, 28% 74%, 4% 76%, 17% 54%, 0% 38%, 22% 32%, 18% 8%, 39% 20%)"></div>
+            <div style="position:absolute;left:9px;top:8px;width:142px;height:100px;background:#FFE014;clip-path:polygon(50% 0%, 61% 20%, 82% 8%, 78% 32%, 100% 38%, 83% 54%, 96% 76%, 72% 74%, 66% 100%, 50% 82%, 34% 100%, 28% 74%, 4% 76%, 17% 54%, 0% 38%, 22% 32%, 18% 8%, 39% 20%);display:flex;align-items:center;justify-content:center;color:#111;font-weight:900;font-size:19px;letter-spacing:.02em">{{toast}}</div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"notch":{"editor":"boolean","default":true,"section":"Mac"},"artStyle":{"editor":"enum","options":["classic","pop"],"default":"classic","section":"Theme"},"appearance":{"editor":"enum","options":["light","dark","system"],"default":"light","section":"Theme"},"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      expanded: false, pinned: false, tab: 'tasks', view: null, selId: null, mode: 'code',
+      style: null, scheme: null, settingsOpen: false, settingsTab: 'General', peek: false, toast: null,
+      launchAtLogin: true, reduceAnim: false,
+      prompt: 'Add biometric login to the login screen. Fall back to PIN when Face ID is unavailable.',
+      docs: ['spec-login.md', 'flow.pdf'], skills: ['~/skills/cmp', '~/skills/ios'],
+      startAt: 'plan', worktree: true,
+      rprompt: 'Compare price, RAM and battery of these laptops. Which is the best value under $1,500?',
+      sources: [
+        { id: 's1', url: 'apple.com/macbook-air', where: 'current tab', on: true },
+        { id: 's2', url: 'dell.com/xps-13', where: 'tab 3', on: true },
+        { id: 's3', url: 'youtube.com/watch?v=lap…', where: 'tab 4', on: false }
+      ],
+      depth: '0', maxPages: '10', sameSite: true, output: 'table', deep: false, followups: [], fq: '',
+      tasks: [
+        { id: 't1', title: 'Login biometric', kind: 'code', stage: 'Code', status: 'running', model: 'sonnet', tok: '12.4k', time: '03:12', progress: 55,
+          subs: ['opus 2.1k', 'sonnet 10.3k', '', '', ''],
+          log: ['$ claude -p --model sonnet --resume 4f2a…', 'graphify query "LoginViewModel" → 6 nodes, 3 files', 'Reading LoginViewModel.kt (lines 1-80)', 'Editing BiometricAuth.kt (commonMain)', 'Editing LoginScreen.kt', 'Claude: Adding expect/actual for BiometricPrompt…'] },
+        { id: 't2', title: 'Fix crash on rotate', kind: 'code', stage: 'Fix', status: 'running', model: 'haiku', tok: '4.1k', time: '01:40', progress: 70, fixN: 1,
+          subs: ['opus 1.2k', 'sonnet 1.7k', './gradlew ✗', 'haiku 1.2k', ''],
+          log: ['$ ./gradlew check', 'Test failed (exit 1), 3 errors:', 'e: LoginViewModel.kt:42 Unresolved reference: biometricState', 'e: LoginScreen.kt:88 Type mismatch: String? but String expected', 'e: RotationTest.kt:17 assertion failed', 'graphify query "biometricState" → 2 nodes', 'Claude: Updating LoginViewModel.kt…'] },
+        { id: 't3', title: 'Refactor network layer', kind: 'code', stage: 'Plan', status: 'waiting', model: 'opus', tok: '2.2k', time: '00:48' },
+        { id: 't5', title: 'Laptop comparison', kind: 'research', stage: 'Report', status: 'done', model: 'sonnet', tok: '7.9k', time: '02:10' },
+        { id: 't4', title: 'Add dark mode', kind: 'code', stage: 'Review', status: 'done', model: 'opus', tok: '18.9k', time: '09:05', findings: '6 findings (1 high)' }
+      ]
+    };
+  }
+
+  componentDidMount() {
+    this.p1 = setTimeout(() => { if (!this.state.expanded) this.setState({ peek: true }); }, 1500);
+    this.p2 = setTimeout(() => this.setState({ peek: false }), 9500);
+  }
+
+  componentWillUnmount() {
+    [this.p1, this.p2, this.ht, this.tt].forEach((x) => clearTimeout(x));
+  }
+
+  styleName() { return this.state.style || (this.props.artStyle === 'pop' ? 'pop' : 'classic'); }
+  schemeName() { return this.state.scheme || this.props.appearance || 'light'; }
+  isDark() {
+    const s = this.schemeName();
+    if (s === 'dark') return true;
+    if (s === 'system') {
+      try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
+    }
+    return false;
+  }
+  stageKey(n) {
+    return ({ Plan: 'plan', Code: 'code', Test: 'test', Fix: 'fix', Review: 'review', Capture: 'code', Clean: 'test', Extract: 'fix', Analyze: 'plan', Report: 'review' })[n] || 'test';
+  }
+  stagesOf(task) { return task.kind === 'research' ? ['Capture', 'Clean', 'Extract', 'Analyze', 'Report'] : ['Plan', 'Code', 'Test', 'Fix', 'Review']; }
+  slug(s) { return (s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28)) || 'task'; }
+  kTok(n) { return (Math.round(n * 10) / 10).toFixed(1) + 'k'; }
+
+  toast(classicText, popText) {
+    clearTimeout(this.tt);
+    this.setState({ toast: this.styleName() === 'pop' ? popText : classicText });
+    this.tt = setTimeout(() => this.setState({ toast: null }), 1500);
+  }
+
+  enter(peekVisible, waitingId) {
+    clearTimeout(this.ht);
+    if (this.state.expanded) return;
+    const patch = peekVisible ? { expanded: true, peek: false, view: 'approval', selId: waitingId } : { expanded: true, peek: false };
+    this.ht = setTimeout(() => this.setState(patch), 120);
+  }
+
+  leave() {
+    clearTimeout(this.ht);
+    const st = this.state;
+    if (!st.expanded) return;
+    const hold = st.pinned || (st.view === null && st.tab === 'new') || st.view === 'approval' || st.view === 'plan' || st.view === 'preview' || st.view === 'report';
+    if (hold) return;
+    this.ht = setTimeout(() => this.setState({ expanded: false, view: null }), 300);
+  }
+
+  updateTask(id, patch) {
+    this.setState((st) => ({ tasks: st.tasks.map((x) => (x.id === id ? Object.assign({}, x, patch) : x)) }));
+  }
+  addTask(task) {
+    this.setState((st) => ({ tasks: [task].concat(st.tasks), tab: 'tasks', view: null, selId: null }));
+  }
+  removeTask(id) {
+    this.setState((st) => ({ tasks: st.tasks.filter((x) => x.id !== id), view: null, selId: null }));
+  }
+  openTask(x) {
+    const view = x.status === 'waiting' ? 'approval' : x.status === 'done' ? (x.kind === 'research' ? 'report' : 'review') : 'detail';
+    this.setState({ view, selId: x.id });
+  }
+  approve(id) {
+    this.updateTask(id, { status: 'running', stage: 'Code', model: 'sonnet', progress: 12 });
+    this.setState({ view: null, tab: 'tasks', peek: false });
+    this.toast('Plan approved, coding started', 'GO!');
+  }
+
+  defaultLog(x) {
+    if (x.kind === 'research') {
+      return ['Captured ' + this.state.sources.filter((s) => s.on).length + ' pages from Safari', 'Cleaned: removed 214 boilerplate lines, 1 duplicate', 'Corpus 6.2k tok (under 30k budget): skipping Extract', '$ claude -p --model ' + x.model + ' (no tools)', 'Analyzing and comparing…'];
+    }
+    if (x.stage === 'Fix') {
+      return ['$ ./gradlew check', 'Test failed (exit 1), 1 error:', 'e: Theme.kt:31 Hardcoded color in commonMain', '$ claude -p --model haiku --resume …', 'Claude: Replacing color with MaterialTheme token…'];
+    }
+    if (x.stage === 'Plan') {
+      return ['$ claude -p --model opus /ecc:plan …', 'graphify query → 4 nodes, 2 files', 'Writing .claude/plans/' + this.slug(x.title) + '.md…'];
+    }
+    return ['$ claude -p --model ' + x.model + ' --resume …', 'graphify query → 5 nodes, 3 files', 'Reading plan .claude/plans/' + this.slug(x.title) + '.md', 'Editing files in worktree…'];
+  }
+
+  planSteps(x) {
+    const plans = {
+      t1: ['Add a BiometricAuth interface in commonMain', 'Android: BiometricPrompt actual', 'iOS: LocalAuthentication (Face ID) actual', 'PIN fallback screen when biometrics are unavailable', 'Unit tests for LoginViewModel states'],
+      t2: ['Reproduce: rotating LoginScreen loses biometricState', 'Hoist biometricState into LoginViewModel (SavedStateHandle)', 'Fix the nullable title in LoginScreen', 'Add RotationTest for state surviving rotation', 'Run ./gradlew check'],
+      t3: ['Extract an ApiClient interface in commonMain', 'Move the Ktor client setup to commonMain, one engine per platform', 'Replace direct HttpClient calls in 4 repositories', 'Add fakes and unit tests for ApiClient', 'Run ./gradlew check'],
+      t4: ['Add dark color scheme tokens to Theme.kt', 'Follow the system appearance by default', 'Add a dark mode toggle in Settings', 'Persist the choice in ThemeRepository', 'Update the screenshots in README']
+    };
+    return plans[x.id] || ['Find the relevant code with graphify query', 'Implement the change in a separate worktree', 'Add or update unit tests', 'Run the project test command', 'Summarize the changes for review'];
+  }
+
+  logStyle(line) {
+    if (line.indexOf('e:') === 0 || line.indexOf('Test failed') === 0) return 'color:#FF8A80';
+    if (line.indexOf('$') === 0) return 'color:#8AB4FF';
+    if (line.indexOf('graphify') === 0) return 'color:#B4E59A';
+    return 'color:#E6E6EA';
+  }
+
+  theme() {
+    const pop = this.styleName() === 'pop';
+    const dark = this.isDark();
+    const CL = { plan: '#7A4FD8', code: dark ? '#3D8BFF' : '#0A63D6', test: '#62626A', fix: '#B35500', review: '#1B7A43', failed: '#C62828', waiting: '#F2B705' };
+    const PP = { plan: '#FF3EA5', code: '#1EC8FF', test: '#C4C4C4', fix: '#FFE014', review: '#2FD06B', failed: '#FF4B3E', waiting: '#FF9F1C' };
+    const P = pop
+      ? (dark ? { bg: '#14204A', surface: '#1F2E66', text: '#FFFFFF', sub: '#D3DAF5', line: '#05081A', soft: '#2A3B7A', dot: 'rgba(255,255,255,.09)' }
+              : { bg: '#FFF4D6', surface: '#FFFFFF', text: '#111111', sub: '#3A3A3A', line: '#111111', soft: '#FFF9E8', dot: 'rgba(0,0,0,.11)' })
+      : (dark ? { bg: '#1C1C1F', surface: '#2A2A2F', text: '#F2F2F5', sub: '#A9A9B2', line: '#3C3C43', soft: '#34343A' }
+              : { bg: '#F5F5F7', surface: '#FFFFFF', text: '#1D1D1F', sub: '#5E5E66', line: '#DCDCE1', soft: '#ECECF0' });
+    const ink = pop ? (dark ? '#05081A' : '#111111') : P.line;
+    const C = pop ? PP : CL;
+    const accentBg = pop ? PP.plan : (dark ? '#5AA2FF' : '#0A63D6');
+    const accentFg = pop ? '#111111' : (dark ? '#0B1A33' : '#FFFFFF');
+    const btnBase = 'height:30px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;box-sizing:border-box;flex:none;';
+    const t = { pop, dark, C, ink, P };
+    t.card = pop
+      ? `background:radial-gradient(${P.dot} 1.2px, transparent 1.7px) 0 0/9px 9px, ${P.bg};color:${P.text};border:2.5px solid ${ink};border-radius:8px;`
+      : `background:${P.bg};color:${P.text};border-radius:14px;`;
+    t.surface = pop
+      ? `background:${P.surface};color:${P.text};border:2.5px solid ${ink};border-radius:6px;box-shadow:4px 4px 0 ${ink};box-sizing:border-box;`
+      : `background:${P.surface};color:${P.text};border:1px solid ${P.line};border-radius:10px;box-sizing:border-box;`;
+    t.head = pop
+      ? `font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:${P.text};`
+      : `font-weight:600;font-size:13px;color:${P.text};`;
+    t.h2 = pop
+      ? `font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:.03em;color:${P.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
+      : `font-weight:700;font-size:15px;color:${P.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+    t.small = `font-size:11.5px;color:${P.sub};`;
+    t.body = `font-size:12.5px;color:${P.text};line-height:1.45;`;
+    t.btn = pop
+      ? `${btnBase}border-radius:5px;border:2px solid ${ink};background:${P.surface};color:${P.text};font-weight:900;text-transform:uppercase;font-size:11px;box-shadow:3px 3px 0 ${ink};`
+      : `${btnBase}border-radius:7px;border:1px solid ${P.line};background:${P.surface};color:${P.text};font-weight:500;font-size:12px;`;
+    t.btnPrimary = pop
+      ? `${btnBase}border-radius:5px;border:2px solid ${ink};background:${PP.plan};color:#111;font-weight:900;text-transform:uppercase;font-size:11px;box-shadow:3px 3px 0 ${ink};`
+      : `${btnBase}border-radius:7px;border:1px solid transparent;background:${accentBg};color:${accentFg};font-weight:600;font-size:12px;`;
+    t.iconBtn = 'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:0;background:transparent;color:#E6E6EA;cursor:pointer;padding:0;';
+    t.iconBtnOn = pop
+      ? 'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;border:0;background:#FFE014;color:#111;cursor:pointer;padding:0;'
+      : 'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:0;background:rgba(255,255,255,.22);color:#FFFFFF;cursor:pointer;padding:0;';
+    t.segWrap = pop ? 'display:inline-flex;gap:6px;' : `display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:${P.soft};`;
+    t.segOn = pop
+      ? `height:28px;padding:0 12px;border:2px solid ${ink};border-radius:5px;background:${PP.fix};color:#111;font-weight:900;font-size:11px;text-transform:uppercase;cursor:pointer;box-shadow:2px 2px 0 ${ink};`
+      : `height:26px;padding:0 12px;border:0;border-radius:6px;background:${P.surface};color:${P.text};font-weight:600;font-size:12px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.15);`;
+    t.segOff = pop
+      ? `height:28px;padding:0 12px;border:2px solid transparent;border-radius:5px;background:transparent;color:${P.text};font-weight:900;font-size:11px;text-transform:uppercase;cursor:pointer;`
+      : `height:26px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:${P.sub};font-weight:500;font-size:12px;cursor:pointer;`;
+    t.input = pop
+      ? `border:2.5px solid ${ink};border-radius:5px;background:${P.surface};color:${P.text};font-size:12.5px;padding:8px 10px;box-sizing:border-box;`
+      : `border:1px solid ${P.line};border-radius:8px;background:${P.surface};color:${P.text};font-size:12.5px;padding:8px 10px;box-sizing:border-box;`;
+    t.check = `accent-color:${accentBg};width:14px;height:14px;margin:0;`;
+    t.chipFile = pop
+      ? `display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 8px;border:2px solid ${ink};border-radius:4px;background:${PP.code};color:#111;font-size:11px;font-weight:800;box-sizing:border-box;`
+      : `display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 10px;border-radius:999px;background:${P.soft};color:${P.text};font-size:11.5px;box-sizing:border-box;`;
+    t.chipX = 'width:20px;height:20px;border:0;background:transparent;color:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;';
+    t.log = `background:${dark ? '#0D0D10' : '#17171B'};color:#E6E6EA;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.65;padding:10px 12px;box-sizing:border-box;overflow:auto;${pop ? `border:2.5px solid ${ink};border-radius:5px;` : 'border-radius:8px;'}`;
+    t.track = pop
+      ? `height:10px;border:2px solid ${ink};border-radius:3px;background:${P.surface};overflow:hidden;box-sizing:border-box;`
+      : `height:4px;border-radius:2px;background:${P.soft};overflow:hidden;`;
+    t.fillBg = pop ? `repeating-linear-gradient(45deg, ${PP.code} 0 6px, ${PP.fix} 6px 12px)` : CL.code;
+    t.divider = pop ? `border-top:2.5px solid ${ink};` : `border-top:1px solid ${P.line};`;
+    t.rowLine = pop ? `border-bottom:2px dashed ${P.sub};` : `border-bottom:1px solid ${P.line};`;
+    t.th = `text-align:left;padding:6px 8px;font-size:11px;color:${P.sub};font-weight:700;${pop ? `border-bottom:2.5px solid ${ink};text-transform:uppercase;` : `border-bottom:1px solid ${P.line};`}`;
+    t.td = `padding:6px 8px;font-size:12px;color:${P.text};${pop ? `border-bottom:2px dashed ${P.sub};` : `border-bottom:1px solid ${P.line};`}`;
+    t.kbd = pop
+      ? `font-family:ui-monospace,Menlo,monospace;font-size:11.5px;padding:3px 8px;border:2px solid ${ink};border-radius:4px;background:${PP.fix};color:#111;font-weight:800;`
+      : `font-family:ui-monospace,Menlo,monospace;font-size:11.5px;padding:3px 8px;border:1px solid ${P.line};border-radius:6px;background:${P.soft};color:${P.text};`;
+    t.peek = pop
+      ? 'height:30px;padding:0 14px;background:#FFFFFF;color:#111;border:2.5px solid #111;border-radius:15px;box-shadow:3px 3px 0 #111;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:.02em;box-sizing:border-box;'
+      : 'height:30px;padding:0 14px;background:#000;color:#F2F2F5;border:0;border-radius:15px;box-shadow:0 6px 18px rgba(0,0,0,.3);font-size:12px;font-weight:500;box-sizing:border-box;';
+    t.wingAccent = pop ? 'border-bottom:3px solid #FFE014;padding-bottom:1px;' : '';
+    t.wingText = pop ? 'text-transform:uppercase;font-weight:900;letter-spacing:.03em;' : '';
+    t.win = pop
+      ? `background:${P.surface};color:${P.text};border:2.5px solid ${ink};border-radius:8px;box-shadow:8px 8px 0 ${ink};`
+      : `background:${P.surface};color:${P.text};border:1px solid ${dark ? '#45454C' : '#D0D0D6'};border-radius:12px;box-shadow:0 22px 60px rgba(0,0,0,.35);`;
+    t.winBar = pop ? `background:${PP.fix};color:#111;border-bottom:2.5px solid ${ink};` : `background:${P.soft};border-bottom:1px solid ${P.line};`;
+    t.side = pop ? `border-right:2.5px solid ${ink};background:${P.soft};` : `border-right:1px solid ${P.line};background:${P.soft};`;
+    t.navOn = pop
+      ? `text-align:left;height:30px;padding:0 10px;border:2px solid ${ink};border-radius:5px;background:${PP.plan};color:#111;font-weight:900;font-size:11px;text-transform:uppercase;cursor:pointer;`
+      : `text-align:left;height:28px;padding:0 10px;border:0;border-radius:6px;background:${accentBg};color:${accentFg};font-weight:600;font-size:12.5px;cursor:pointer;`;
+    t.navOff = pop
+      ? `text-align:left;height:30px;padding:0 10px;border:2px solid transparent;border-radius:5px;background:transparent;color:${P.text};font-weight:900;font-size:11px;text-transform:uppercase;cursor:pointer;`
+      : `text-align:left;height:28px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:${P.text};font-size:12.5px;cursor:pointer;`;
+    t.badge = (kind) => {
+      const map = { ok: C.review, warn: C.waiting, bad: C.failed, off: P.soft };
+      const bg = map[kind] || P.soft;
+      const fg = pop ? '#111' : (kind === 'ok' || kind === 'bad' ? '#FFFFFF' : '#111');
+      return `display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:20px;padding:0 6px;font-size:10.5px;font-weight:800;flex:none;box-sizing:border-box;background:${bg};color:${kind === 'off' ? P.sub : fg};${pop ? `border:2px solid ${ink};border-radius:4px;text-transform:uppercase;` : 'border-radius:999px;'}`;
+    };
+    t.chip = (state, key) => {
+      const base = pop
+        ? 'display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:4px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;box-sizing:border-box;'
+        : 'display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;box-sizing:border-box;';
+      if (state === 'active') {
+        const fg = pop ? '#111' : (key === 'waiting' ? '#111' : '#FFFFFF');
+        return `${base}background:${C[key]};color:${fg};${pop ? `border:2px solid ${ink};box-shadow:2px 2px 0 ${ink};` : ''}`;
+      }
+      if (state === 'done') return `${base}background:${P.soft};color:${P.text};${pop ? `border:2px solid ${ink};` : ''}`;
+      return `${base}background:transparent;color:${P.sub};border:${pop ? '2px' : '1px'} dashed ${pop ? P.sub : (dark ? '#5A5A62' : '#BDBDC4')};`;
+    };
+    t.toastClassic = dark ? 'background:#F2F2F5;color:#1D1D1F;box-shadow:0 6px 20px rgba(0,0,0,.4);' : 'background:#1D1D1F;color:#FFFFFF;box-shadow:0 6px 20px rgba(0,0,0,.25);';
+    return t;
+  }
+
+  mascot(size, pose, pop) {
+    const ink = pop ? '#111' : '#2B1D14';
+    const lw = Math.max(1.5, size / 16);
+    const mw = size * 0.32;
+    const head = `display:block;position:relative;width:${size}px;height:${size}px;border-radius:50%;background:#FFD3A8;box-sizing:border-box;${pop ? `border:${Math.max(1.5, size / 14)}px solid #111;` : ''}`;
+    const hair = `display:block;position:absolute;left:0;top:0;width:100%;height:40%;background:#3B2A20;border-radius:${size}px ${size}px 0 0;`;
+    const eye = (left) => `display:block;position:absolute;top:47%;left:${left}%;width:${Math.max(2, size * 0.11)}px;height:${Math.max(2, size * 0.13)}px;background:${ink};border-radius:50%;`;
+    let mouth;
+    if (pose === 'done') {
+      mouth = `display:block;position:absolute;left:50%;top:62%;width:${mw}px;height:${size * 0.16}px;margin-left:${-mw / 2}px;border-bottom:${lw}px solid ${ink};border-radius:0 0 ${mw}px ${mw}px;box-sizing:border-box;`;
+    } else if (pose === 'error') {
+      mouth = `display:block;position:absolute;left:50%;top:74%;width:${mw * 0.8}px;height:0;margin-left:${-mw * 0.4}px;border-top:${lw}px solid ${ink};`;
+    } else if (pose === 'waiting' || pose === 'reading') {
+      mouth = `display:block;position:absolute;left:50%;top:70%;width:${size * 0.15}px;height:${size * 0.15}px;margin-left:${-size * 0.075}px;border:${lw}px solid ${ink};border-radius:50%;box-sizing:border-box;`;
+    } else {
+      mouth = `display:block;position:absolute;left:50%;top:68%;width:${mw * 0.7}px;height:${size * 0.1}px;margin-left:${-mw * 0.35}px;border-bottom:${lw}px solid ${ink};border-radius:0 0 ${mw}px ${mw}px;box-sizing:border-box;`;
+    }
+    const dotGap = Math.max(3, size / 10);
+    const cheek = pop
+      ? `display:block;position:absolute;left:10%;top:62%;width:${size * 0.22}px;height:${size * 0.16}px;border-radius:50%;background:radial-gradient(#FF3EA5 1px, transparent 1.4px) 0 0/${dotGap}px ${dotGap}px;`
+      : `display:block;position:absolute;left:12%;top:62%;width:${size * 0.18}px;height:${size * 0.12}px;border-radius:50%;background:rgba(255,120,120,.38);`;
+    const anim = ({ typing: 'bob', reading: 'tilt', done: 'hop', error: 'shake', waiting: 'bob', idle: '' })[pose] || '';
+    return {
+      head, hair, eyeL: eye(26), eyeR: eye(62), mouth, cheek, anim,
+      sweat: pose === 'error', bang: pose === 'waiting',
+      sweatStyle: `display:block;position:absolute;right:${-size * 0.12}px;top:16%;width:${size * 0.16}px;height:${size * 0.22}px;background:#5AC8FA;border-radius:50% 50% 50% 0;transform:rotate(-45deg);`,
+      bangStyle: `display:block;position:absolute;right:${-size * 0.38}px;top:${-size * 0.12}px;font-size:${Math.max(11, size * 0.45)}px;font-weight:900;color:${pop ? '#FFE014' : '#F2B705'};line-height:1;`
+    };
+  }
+
+  chipsFor(x, t) {
+    const names = this.stagesOf(x);
+    const cur = names.indexOf(x.stage);
+    return names.map((n, i) => {
+      const state = x.status === 'done' ? 'done' : (i < cur ? 'done' : (i === cur ? 'active' : 'pending'));
+      let label = n;
+      if (n === 'Fix' && x.fixN && state === 'active') label = 'Fix ' + x.fixN + '/2';
+      const key = x.status === 'waiting' ? 'waiting' : (x.status === 'failed' ? 'failed' : this.stageKey(n));
+      const text = state === 'done' ? '✓ ' + label : (state === 'active' ? '● ' + label : label);
+      return { label: text, style: t.chip(state, key) };
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const t = this.theme();
+    const pop = t.pop;
+    const notch = this.props.notch ?? true;
+    const tasks = s.tasks;
+    const running = tasks.filter((x) => x.status === 'running');
+    const waiting = tasks.filter((x) => x.status === 'waiting');
+    const activeCount = running.length + waiting.length;
+    const peekVisible = s.peek && !s.expanded && waiting.length > 0;
+    const lead = peekVisible ? waiting[0] : (running[0] || waiting[0] || null);
+
+    let w; let h; let r;
+    if (s.expanded) { w = 640; h = 520; r = '0 0 22px 22px'; }
+    else if (notch) { w = 200; h = 34; r = '0 0 12px 12px'; }
+    else { w = 132; h = 66; r = '0 0 66px 66px'; }
+    const ease = 'cubic-bezier(.2,.9,.3,1.15)';
+    const panelStyle = `position:absolute;left:${640 - w / 2}px;top:0;width:${w}px;height:${h}px;background:#000;border-radius:${r};overflow:hidden;z-index:10;transition:width .35s ${ease},height .35s ${ease},left .35s ${ease},border-radius .35s;${s.expanded ? 'box-shadow:0 18px 50px rgba(0,0,0,.35);' : ''}`;
+
+    let pose = 'idle';
+    if (peekVisible) pose = 'waiting';
+    else if (lead && lead.status === 'running') pose = lead.kind === 'research' ? 'reading' : 'typing';
+    else if (lead && lead.status === 'waiting') pose = 'waiting';
+    else if (tasks.some((x) => x.status === 'done')) pose = 'done';
+    const poseLabel = ({ typing: 'working', reading: 'reading', waiting: 'needs you', done: 'all done', idle: 'idle', error: 'oops' })[pose];
+    const wingStage = lead ? (lead.status === 'waiting' ? 'Approve' : lead.stage) : 'Idle';
+    const wingColor = lead ? (lead.status === 'waiting' ? t.C.waiting : t.C[this.stageKey(lead.stage)]) : '#8E8E93';
+    const wingDot = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${wingColor};${pop ? 'box-shadow:0 0 0 1.5px #fff;' : ''}`;
+    const countBadge = `display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:11px;font-weight:700;box-sizing:border-box;${pop ? 'background:#FFE014;color:#111;' : 'background:rgba(255,255,255,.2);color:#fff;'}`;
+    const peekText = waiting[0] ? (pop ? `Plan ready! Approve "${waiting[0].title}"?` : `"${waiting[0].title}": plan ready, approve?`) : '';
+
+    const rows = tasks.map((x) => {
+      const isResearch = x.kind === 'research';
+      let statusLine;
+      if (x.status === 'waiting') statusLine = 'waiting for your approval · Plan · ' + x.model;
+      else if (x.status === 'running') statusLine = 'running · ' + x.stage + ' · ' + x.model;
+      else if (x.status === 'done') statusLine = isResearch ? 'done · comparison table · 2 sources' : 'done · ' + (x.findings || 'review ready');
+      else statusLine = 'failed';
+      return {
+        id: x.id, title: x.title, chips: this.chipsFor(x, t),
+        statusLine: (isResearch ? 'Research · ' : '') + statusLine,
+        meta: x.tok + ' tok · ' + x.time,
+        isRunning: x.status === 'running', isWaiting: x.status === 'waiting',
+        isDoneCode: x.status === 'done' && !isResearch, isDoneResearch: x.status === 'done' && isResearch,
+        hasPlan: !isResearch && !x.noPlan,
+        runningPlanBtn: x.status === 'running' && !isResearch && !x.noPlan,
+        viewPlan: () => this.setState({ view: 'plan', selId: x.id, planFrom: null }),
+        fill: `height:100%;width:${x.progress || 10}%;background:${t.fillBg};`,
+        open: () => this.openTask(x),
+        approve: () => this.approve(x.id),
+        cancel: () => { this.removeTask(x.id); this.toast('Task cancelled', 'BYE!'); },
+        openPlan: () => this.setState({ view: 'approval', selId: x.id }),
+        openWorktree: () => this.toast('Opened worktree in Finder', 'OK!'),
+        openFolder: () => this.toast('Opened research folder', 'OK!')
+      };
+    });
+    const todaySum = tasks.reduce((a, x) => a + (parseFloat(x.tok) || 0), 0);
+
+    const tabNames = [['tasks', 'Tasks'], ['new', 'New'], ['terminal', 'Terminal']];
+    const tabs = tabNames.map((p) => ({ name: p[1], on: s.tab === p[0], style: s.tab === p[0] ? t.segOn : t.segOff, pick: () => this.setState({ tab: p[0] }) }));
+
+    const sel = tasks.find((x) => x.id === s.selId) || null;
+    const v = { tabs: s.view === null, detail: s.view === 'detail' && !!sel, approval: s.view === 'approval' && !!sel, plan: s.view === 'plan' && !!sel, review: s.view === 'review', preview: s.view === 'preview', report: s.view === 'report' };
+
+    let planView = { title: '', path: '', meta: '', steps: [], note: '', badge: '', badgeText: '', back: () => {} };
+    if (sel) {
+      const approved = sel.status !== 'waiting';
+      planView = {
+        title: sel.title,
+        path: '.claude/plans/' + this.slug(sel.title) + '.md',
+        meta: 'opus · ' + this.planSteps(sel).length + ' steps',
+        steps: this.planSteps(sel).map((x) => ({ text: x })),
+        badge: t.badge(approved ? 'ok' : 'warn'),
+        badgeText: approved ? 'Approved' : 'Waiting',
+        note: sel.status === 'running'
+          ? 'Read-only. ' + sel.stage + ' reads this file by path, so the plan is not sent to Claude again.'
+          : (sel.status === 'done' ? 'Read-only. Kept with the task so you can compare the plan with the review.' : 'Waiting for your approval. Approve it from the task row or the alert under the notch.'),
+        back: () => this.setState({ view: s.planFrom || null, planFrom: null })
+      };
+    }
+
+    let detail = { title: '', timeline: [], log: [], footer: '', caption: '', hasPlan: false, viewPlan: () => {}, cancel: () => {} };
+    let detailPose = 'idle';
+    if (sel) {
+      const names = this.stagesOf(sel);
+      const cur = names.indexOf(sel.stage);
+      const subs = sel.subs || names.map((n, i) => (sel.status === 'done' || i < cur ? 'done' : (i === cur ? sel.model : '')));
+      const sl = this.slug(sel.title);
+      detailPose = sel.status === 'waiting' ? 'waiting' : sel.status === 'done' ? 'done' : (sel.kind === 'research' ? 'reading' : 'typing');
+      const caption = sel.kind === 'research' ? 'analyzing…' : (sel.stage === 'Fix' ? 'fixing…' : (sel.stage === 'Plan' ? 'planning…' : 'coding…'));
+      detail = {
+        title: sel.title,
+        timeline: this.chipsFor(sel, t).map((c, i) => Object.assign({}, c, { sub: subs[i] || '' })),
+        log: (sel.log || this.defaultLog(sel)).map((line) => ({ text: line, style: this.logStyle(line) })),
+        footer: sel.kind === 'research' ? 'Folder ~/Documents/LF-AIWorkflow/Research/2026-10-28-' + sl : 'Branch ai/' + sl + ' · worktree ../MyApp-' + sl,
+        caption,
+        hasPlan: sel.kind === 'code' && !sel.noPlan,
+        viewPlan: () => this.setState({ view: 'plan', planFrom: 'detail' }),
+        cancel: () => { this.removeTask(sel.id); this.toast('Task cancelled', 'BYE!'); }
+      };
+    }
+
+    const approvalTask = sel || waiting[0] || { id: '', title: '', tok: '' };
+    const approval = {
+      title: approvalTask.title,
+      path: '.claude/plans/' + this.slug(approvalTask.title || 'plan') + '.md',
+      tok: approvalTask.tok,
+      steps: this.planSteps(approvalTask).map((x) => ({ text: x })),
+      approve: () => this.approve(approvalTask.id),
+      cancel: () => { this.removeTask(approvalTask.id); this.toast('Task cancelled', 'BYE!'); }
+    };
+
+    const sev = (k) => (k === 'HIGH' ? 'bad' : (k === 'MED' ? 'warn' : 'off'));
+    const findings = [
+      { sev: 'HIGH', file: 'Theme.kt:31', issue: 'Hardcoded color in commonMain; use a design token' },
+      { sev: 'MED', file: 'SettingsScreen.swift:88', issue: 'Missing VoiceOver label on the dark mode toggle' },
+      { sev: 'MED', file: 'ThemeRepository.kt:54', issue: 'Theme read on the main thread; move to Dispatchers.IO' },
+      { sev: 'LOW', file: 'Colors.kt:12', issue: 'Unused color darkSurfaceVariant' },
+      { sev: 'LOW', file: 'README.md:40', issue: 'Screenshot still shows the old light theme' },
+      { sev: 'LOW', file: 'ThemeTest.kt:9', issue: 'Test name does not describe the behavior' }
+    ].map((f) => Object.assign({}, f, { sevStyle: t.badge(sev(f.sev)) }));
+
+    const meta = {
+      s1: { title: 'MacBook Air 13"', tok: 1.4, note: '2 tables', kind: 'ok' },
+      s2: { title: 'XPS 13', tok: 1.9, note: '1 table', kind: 'ok' },
+      s3: { title: 'Video page', tok: 0.2, note: 'looks empty', kind: 'warn' }
+    };
+    let previewRows = s.sources.filter((x) => x.on).map((x) => {
+      const m = meta[x.id] || { title: x.url.split('/')[0], tok: 1.2, note: '1 table', kind: 'ok' };
+      return { title: m.title, url: x.url, tok: m.tok.toFixed(1) + 'k tok', tokN: m.tok, note: m.note, status: m.kind === 'ok' ? 'OK' : 'Check', badge: t.badge(m.kind) };
+    });
+    if (s.depth !== '0') {
+      previewRows = previewRows.concat([
+        { title: 'XPS 13 specs', url: 'dell.com/xps-13/specs', tok: '1.1k tok', tokN: 1.1, note: 'crawled, 1 table', status: 'OK', badge: t.badge('ok') },
+        { title: 'Duplicate of XPS 13', url: 'dell.com/xps-13?ref=nav', tok: '0.0k tok', tokN: 0, note: 'removed', status: 'Dup', badge: t.badge('off') }
+      ]);
+    }
+    const previewTok = previewRows.reduce((a, x) => a + x.tokN, 0);
+    const preview = { rows: previewRows, summary: previewRows.length + ' pages · ' + this.kTok(previewTok) + ' tok after cleaning', boiler: 120 + previewRows.length * 31 };
+
+    const onCount = s.sources.filter((x) => x.on).length;
+    const estCode = 0.6 + s.prompt.length / 4000 + s.docs.length * 0.35 + s.skills.length * 0.12 + 0.4;
+    const estResearch = onCount * 1.3 + Number(s.depth) * 2;
+    const inboxUrls = ['lenovo.com/thinkpad-x1', 'asus.com/zenbook-14', 'bestbuy.com/laptops'];
+    const inboxCount = inboxUrls.filter((u) => !s.sources.some((x) => x.url === u)).length;
+
+    const ms = this.mascot(20, pose, pop);
+    const mb = this.mascot(64, detailPose, pop);
+
+    const settingsNames = ['General', 'Tools', 'Stages', 'Budgets', 'Projects'];
+    const settingsNav = settingsNames.map((n) => ({ name: n, style: s.settingsTab === n ? t.navOn : t.navOff, pick: () => this.setState({ settingsTab: n }) }));
+    const sv = { general: s.settingsTab === 'General', tools: s.settingsTab === 'Tools', stages: s.settingsTab === 'Stages', budgets: s.settingsTab === 'Budgets', projects: s.settingsTab === 'Projects' };
+    const scheme = this.schemeName();
+    const schemes = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map((p) => ({ name: p[1], on: scheme === p[0], style: scheme === p[0] ? t.segOn : t.segOff, pick: () => this.setState({ scheme: p[0] }) }));
+    const styleName = this.styleName();
+    const cardBase = 'all:unset;display:block;cursor:pointer;padding:10px;box-sizing:border-box;';
+    const selRing = pop ? `border:2.5px solid ${t.ink};border-radius:6px;box-shadow:4px 4px 0 ${t.ink};background:${t.P.soft};` : `border:2px solid ${t.dark ? '#5AA2FF' : '#0A63D6'};border-radius:10px;background:${t.P.soft};`;
+    const unselRing = pop ? `border:2.5px dashed ${t.P.sub};border-radius:6px;` : `border:1px solid ${t.P.line};border-radius:10px;`;
+
+    const toolRows = [
+      { name: 'claude', path: '~/.local/bin/claude', ver: '2.1.311', status: 'OK', badge: t.badge('ok') },
+      { name: 'graphify', path: '~/.local/bin/graphify', ver: '0.9.32', status: 'OK', badge: t.badge('ok') },
+      { name: 'git', path: '/usr/bin/git', ver: 'found', status: 'OK', badge: t.badge('ok') },
+      { name: 'ECC plugin', path: 'ecc@ecc', ver: 'installed', status: 'OK', badge: t.badge('ok') },
+      { name: 'Safari: JavaScript from Apple Events', path: 'Safari › Settings › Developer', ver: 'on', status: 'OK', badge: t.badge('ok') }
+    ];
+    const stageRows = [
+      { stage: 'Plan', model: 'opus', turns: '8', tools: 'Read, Grep, Glob, graphify' },
+      { stage: 'Code', model: 'sonnet', turns: '20', tools: 'Read, Write, Edit, Grep, Glob, graphify, test' },
+      { stage: 'Fix', model: 'haiku → sonnet', turns: '10', tools: 'same as Code' },
+      { stage: 'Review', model: 'opus', turns: '8', tools: 'Read, Grep, Glob, git diff' },
+      { stage: 'Research: Extract', model: 'haiku', turns: '1', tools: 'none' },
+      { stage: 'Research: Analyze', model: 'sonnet / opus', turns: '6', tools: 'Read (research folder)' }
+    ];
+    const budgetRows = [
+      { label: 'Per task', value: '60k tokens' }, { label: 'Per day', value: '200k tokens' },
+      { label: 'Inline document limit', value: '2,000 tokens' }, { label: 'Error lines sent to Fix', value: '1,500 tokens' },
+      { label: 'Research analyze budget', value: '30k tokens' }, { label: 'Fix loops', value: '2' }, { label: 'Test timeout', value: '10 min' }
+    ];
+    const projectRows = [
+      { name: 'MyApp', path: '~/Projects/MyApp', cmd: './gradlew check', wt: 'on', skills: '2 folders' },
+      { name: 'LF-AIWorkflow', path: '~/Documents/XCodeProject/LF-AIWorkflow', cmd: 'xcodebuild test', wt: 'on', skills: 'none' }
+    ];
+
+    const followups = s.followups;
+    const reportTok = this.kTok(7.9 + followups.length * 0.6);
+    const isCode = s.mode === 'code';
+
+    return {
+      t, notch, panelStyle, ms, mb, poseLabel, wingStage, wingDot, countBadge, activeCount, peekText, peekVisible,
+      desktopStyle: t.dark ? 'background:#1E2530;' : 'background:#AFC2D3;',
+      menuStyle: t.dark ? 'background:rgba(18,18,22,.66);color:#F2F2F2;' : 'background:rgba(255,255,255,.6);color:#111;',
+      showStrip: !s.expanded && notch,
+      showHalf: !s.expanded && !notch,
+      stripLabel: 'Expand LF-AIWorkflow · ' + activeCount + ' active, ' + wingStage,
+      peekStyle: `position:absolute;left:0;right:0;top:${notch ? 42 : 74}px;margin:0 auto;width:max-content;z-index:9;cursor:pointer;font-family:inherit;${t.peek}`,
+      expanded: s.expanded,
+      onEnter: () => this.enter(peekVisible, waiting[0] ? waiting[0].id : null),
+      onLeave: () => this.leave(),
+      onStripClick: () => {
+        clearTimeout(this.ht);
+        if (peekVisible && waiting[0]) this.setState({ expanded: true, peek: false, view: 'approval', selId: waiting[0].id });
+        else this.setState({ expanded: true, peek: false });
+      },
+      collapse: () => { clearTimeout(this.ht); this.setState({ expanded: false, view: null, pinned: false }); },
+      pinned: s.pinned,
+      pinStyle: s.pinned ? t.iconBtnOn : t.iconBtn,
+      togglePin: () => this.setState({ pinned: !s.pinned }),
+      openSettings: () => this.setState({ settingsOpen: true }),
+      closeSettings: () => this.setState({ settingsOpen: false }),
+      settingsOpen: s.settingsOpen,
+      v, tabs,
+      tabTasks: s.tab === 'tasks', tabNew: s.tab === 'new', tabTerminal: s.tab === 'terminal',
+      rows, noTasks: rows.length === 0,
+      todayTok: this.kTok(todaySum),
+      clearDone: () => this.setState((st) => ({ tasks: st.tasks.filter((x) => x.status !== 'done') })),
+      back: () => this.setState({ view: null, selId: null }),
+      backToNew: () => this.setState({ view: null, tab: 'new' }),
+      goTasks: () => this.setState({ tab: 'tasks' }),
+      detail, deskStyle: `display:block;width:84px;height:3px;margin-top:4px;background:${t.pop ? '#111' : t.P.line};`,
+      laptopStyle: `display:block;width:40px;height:8px;margin-top:-11px;margin-left:30px;border-radius:2px 2px 0 0;background:${t.pop ? '#1EC8FF' : '#9A9AA3'};${t.pop ? 'border:2px solid #111;box-sizing:border-box;' : ''}`,
+      approval, openEditor: () => this.toast('Opened plan in your editor', 'OK!'),
+      findings,
+      openWorktreeAny: () => this.toast('Opened worktree in Finder', 'OK!'),
+      planView,
+      reviewPlan: () => this.setState({ view: 'plan', selId: s.selId || 't4', planFrom: 'review' }),
+      copyPlanPath: () => this.toast('Plan path copied', 'COPIED!'),
+      sendHighToFix: () => {
+        this.addTask({ id: 'f' + Date.now(), title: 'Fix: hardcoded color in Theme.kt', kind: 'code', stage: 'Fix', status: 'running', model: 'haiku', tok: '0.9k', time: '00:02', progress: 20, fixN: 1, noPlan: true });
+        this.toast('HIGH finding sent to Fix', 'BAM!');
+      },
+      preview,
+      openFolder: () => this.toast('Opened research folder', 'OK!'),
+      isCode, isResearch: !isCode,
+      modeCode: () => this.setState({ mode: 'code' }), modeResearch: () => this.setState({ mode: 'research' }),
+      modeCodeStyle: isCode ? t.segOn : t.segOff, modeResearchStyle: !isCode ? t.segOn : t.segOff,
+      modeHint: isCode ? 'Plan › Code › Test › Fix › Review' : 'Safari: connected',
+      prompt: s.prompt, onPrompt: (e) => this.setState({ prompt: e.target.value }),
+      docs: s.docs.map((d, i) => ({ name: d, label: 'Remove ' + d, remove: () => this.setState((st) => ({ docs: st.docs.filter((_, j) => j !== i) })) })),
+      skills: s.skills.map((d, i) => ({ name: d, label: 'Remove ' + d, remove: () => this.setState((st) => ({ skills: st.skills.filter((_, j) => j !== i) })) })),
+      addDoc: () => {
+        const next = ['notes.md', 'api-contract.yaml', 'login-screen.png'].find((d) => s.docs.indexOf(d) < 0);
+        if (next) this.setState({ docs: s.docs.concat([next]) });
+      },
+      addSkill: () => {
+        const next = ['~/skills/android', '~/skills/testing'].find((d) => s.skills.indexOf(d) < 0);
+        if (next) this.setState({ skills: s.skills.concat([next]) });
+      },
+      startPlan: s.startAt === 'plan', startCodeOn: s.startAt === 'code',
+      setStartPlan: () => this.setState({ startAt: 'plan' }), setStartCode: () => this.setState({ startAt: 'code' }),
+      worktree: s.worktree, toggleWorktree: () => this.setState({ worktree: !s.worktree }),
+      estText: isCode ? 'Est. ' + this.kTok(estCode) + ' tok' : 'Est. after cleaning: ' + this.kTok(estResearch) + ' tok',
+      startCode: () => {
+        const title = ((s.prompt.trim().split(/[.\n]/)[0]) || 'New task').slice(0, 34);
+        const atCode = s.startAt === 'code';
+        this.addTask({ id: 'n' + Date.now(), title, kind: 'code', stage: atCode ? 'Code' : 'Plan', status: 'running', model: atCode ? 'sonnet' : 'opus', tok: '0.3k', time: '00:01', progress: 6, noPlan: atCode });
+        this.toast('Task started', 'POW!');
+      },
+      rprompt: s.rprompt, onRPrompt: (e) => this.setState({ rprompt: e.target.value }),
+      sourceRows: s.sources.map((src) => ({ url: src.url, where: src.where, on: src.on, toggle: () => this.setState((st) => ({ sources: st.sources.map((y) => (y.id === src.id ? Object.assign({}, y, { on: !y.on }) : y)) })) })),
+      addUrl: () => this.setState((st) => ({ sources: st.sources.concat([{ id: 'u' + st.sources.length, url: 'example.com/pricing-' + st.sources.length, where: 'URL', on: true }]) })),
+      inboxCount,
+      useInbox: () => this.setState((st) => ({ sources: st.sources.concat(inboxUrls.filter((u) => !st.sources.some((x) => x.url === u)).map((u, i) => ({ id: 'i' + i + u.length, url: u, where: 'inbox', on: true }))) })),
+      depth: s.depth, onDepth: (e) => this.setState({ depth: e.target.value }),
+      maxPages: s.maxPages, onMaxPages: (e) => this.setState({ maxPages: e.target.value }),
+      sameSite: s.sameSite, toggleSameSite: () => this.setState({ sameSite: !s.sameSite }),
+      outTable: s.output === 'table', outReport: s.output === 'report', outBoth: s.output === 'both',
+      setOutTable: () => this.setState({ output: 'table' }), setOutReport: () => this.setState({ output: 'report' }), setOutBoth: () => this.setState({ output: 'both' }),
+      deep: s.deep, toggleDeep: () => this.setState({ deep: !s.deep }),
+      openPreview: () => this.setState({ view: 'preview' }),
+      runResearch: () => {
+        const title = ((s.rprompt.trim().split(/[.?\n]/)[0]) || 'Research').slice(0, 34);
+        this.addTask({ id: 'r' + Date.now(), title, kind: 'research', stage: 'Analyze', status: 'running', model: s.deep ? 'opus' : 'sonnet', tok: this.kTok(estResearch), time: '00:04', progress: 62 });
+        this.toast('Research started', 'ZAP!');
+      },
+      terminalLines: (((tasks.find((x) => x.id === 't2') || tasks[0] || {}).log) || ['No running task.'])
+        .map((line) => ({ text: line, style: this.logStyle(line) })),
+      copyLog: () => this.toast('Copied to clipboard', 'COPIED!'),
+      reportRows: [
+        { model: 'MacBook Air 13"', price: '$1,099', ram: '16 GB', battery: '18 h', src: '[1]' },
+        { model: 'XPS 13', price: '$1,299', ram: '16 GB', battery: '13 h', src: '[2]' }
+      ],
+      reportTok, followups,
+      fq: s.fq, onFq: (e) => this.setState({ fq: e.target.value }),
+      ask: () => {
+        const q = s.fq.trim();
+        if (!q) return;
+        const a = followups.length === 0
+          ? 'Under $1,300 both fit. The XPS 13 costs $200 more for a sharper screen [2]; the MacBook Air still lasts about 5 hours longer [1].'
+          : 'The captured pages do not list a sale price for either model [1][2]. Use Re-capture to check again.';
+        this.setState({ followups: followups.concat([{ q, a }]), fq: '' });
+      },
+      exportCsv: () => this.toast('Saved comparison.csv', 'SAVED!'),
+      recapture: () => this.toast('Re-capturing 2 tabs from Safari', 'ZAP!'),
+      toast: s.toast, toastClassic: !!s.toast && !pop, toastPop: !!s.toast && pop, toastClassicStyle: t.toastClassic,
+      settingsNav, sv, schemes,
+      isClassic: styleName === 'classic', isPop: styleName === 'pop',
+      classicCard: cardBase + `color:${t.P.text};` + (styleName === 'classic' ? selRing : unselRing),
+      popCard: cardBase + `color:${t.P.text};` + (styleName === 'pop' ? selRing : unselRing),
+      pickClassic: () => this.setState({ style: 'classic' }),
+      pickPop: () => this.setState({ style: 'pop' }),
+      launchAtLogin: s.launchAtLogin, toggleLaunch: () => this.setState({ launchAtLogin: !s.launchAtLogin }),
+      reduceAnim: s.reduceAnim, toggleReduce: () => this.setState({ reduceAnim: !s.reduceAnim }),
+      toolRows, redetect: () => this.toast('All tools found', 'OK!'),
+      stageRows, budgetRows, projectRows
+    };
+  }
+}
+</script>
+</body>
+</html>
