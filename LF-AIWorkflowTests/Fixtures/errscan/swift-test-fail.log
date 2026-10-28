@@ -1,0 +1,61 @@
+Building for debugging...
+[1/3] Compiling AppTests
+[2/3] Linking AppPackageTests
+Build complete! (2.31s)
+Test Suite 'All tests' started at 2026-10-28 09:00:00.000.
+Test Case step 0: processing unit 0 ok
+Test Case step 1: processing unit 1 ok
+Test Case step 2: processing unit 2 ok
+Test Case step 3: processing unit 3 ok
+Test Case step 4: processing unit 4 ok
+Test Case step 5: processing unit 5 ok
+Test Case step 6: processing unit 6 ok
+Test Case step 7: processing unit 7 ok
+Test Case step 8: processing unit 8 ok
+Test Case step 9: processing unit 9 ok
+Test Case step 10: processing unit 10 ok
+Test Case step 11: processing unit 11 ok
+Test Case step 12: processing unit 12 ok
+Test Case step 13: processing unit 13 ok
+Test Case step 14: processing unit 14 ok
+Test Case step 15: processing unit 15 ok
+Test Case step 16: processing unit 16 ok
+Test Case step 17: processing unit 17 ok
+Test Case step 18: processing unit 18 ok
+Test Case step 19: processing unit 19 ok
+Test Case step 20: processing unit 20 ok
+Test Case step 21: processing unit 21 ok
+Test Case step 22: processing unit 22 ok
+Test Case step 23: processing unit 23 ok
+Test Case step 24: processing unit 24 ok
+Test Case 'MathTests.testAdd' started.
+/Users/dev/App/Tests/MathTests.swift:12: error: -[AppTests.MathTests testAdd] : XCTAssertEqual failed: ("3") is not equal to ("4")
+Test Case 'MathTests.testAdd' failed (0.001 seconds).
+Test Case 'MathTests.testSub' started.
+Test Case 'MathTests.testSub' passed (0.000 seconds).
+Test Case step 0: processing unit 0 ok
+Test Case step 1: processing unit 1 ok
+Test Case step 2: processing unit 2 ok
+Test Case step 3: processing unit 3 ok
+Test Case step 4: processing unit 4 ok
+Test Case step 5: processing unit 5 ok
+Test Case step 6: processing unit 6 ok
+Test Case step 7: processing unit 7 ok
+Test Case step 8: processing unit 8 ok
+Test Case step 9: processing unit 9 ok
+Test Case step 10: processing unit 10 ok
+Test Case step 11: processing unit 11 ok
+Test Case step 12: processing unit 12 ok
+Test Case step 13: processing unit 13 ok
+Test Case step 14: processing unit 14 ok
+Test Case step 15: processing unit 15 ok
+Test Case step 16: processing unit 16 ok
+Test Case step 17: processing unit 17 ok
+Test Case step 18: processing unit 18 ok
+Test Case step 19: processing unit 19 ok
+Test Case step 20: processing unit 20 ok
+Test Case step 21: processing unit 21 ok
+Test Case step 22: processing unit 22 ok
+Test Case step 23: processing unit 23 ok
+Test Case step 24: processing unit 24 ok
+Executed 52 tests, with 1 failure (0 unexpected) in 0.120 (0.122) seconds

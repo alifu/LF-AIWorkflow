@@ -1,5 +1,5 @@
 #include <errno.h>
-#include "include/LFCore.h"
+#include "LFCore.h"
 
 /// Complexity: O(1) time, O(1) space
 int lf_bm25_stub(void) {

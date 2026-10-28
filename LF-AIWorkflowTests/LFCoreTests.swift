@@ -8,8 +8,8 @@ import LFCore
 
 struct LFCoreTests {
 
-    @Test func versionReturnsStubTag() {
-        #expect(String(cString: lf_core_version()) == "0.1.0-stub")
+    @Test func versionReturnsPhase2Tag() {
+        #expect(String(cString: lf_core_version()) == "0.2.0")
     }
 
 }

@@ -1,0 +1,66 @@
+> app@1.0.0 test
+> jest
+
+PASS src/ok step 0: processing unit 0 ok
+PASS src/ok step 1: processing unit 1 ok
+PASS src/ok step 2: processing unit 2 ok
+PASS src/ok step 3: processing unit 3 ok
+PASS src/ok step 4: processing unit 4 ok
+PASS src/ok step 5: processing unit 5 ok
+PASS src/ok step 6: processing unit 6 ok
+PASS src/ok step 7: processing unit 7 ok
+PASS src/ok step 8: processing unit 8 ok
+PASS src/ok step 9: processing unit 9 ok
+PASS src/ok step 10: processing unit 10 ok
+PASS src/ok step 11: processing unit 11 ok
+PASS src/ok step 12: processing unit 12 ok
+PASS src/ok step 13: processing unit 13 ok
+PASS src/ok step 14: processing unit 14 ok
+PASS src/ok step 15: processing unit 15 ok
+PASS src/ok step 16: processing unit 16 ok
+PASS src/ok step 17: processing unit 17 ok
+PASS src/ok step 18: processing unit 18 ok
+PASS src/ok step 19: processing unit 19 ok
+PASS src/ok step 20: processing unit 20 ok
+PASS src/ok step 21: processing unit 21 ok
+PASS src/ok step 22: processing unit 22 ok
+PASS src/ok step 23: processing unit 23 ok
+PASS src/ok step 24: processing unit 24 ok
+FAIL src/sum.test.js
+  ● sum › adds numbers
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 4
+    Received: 3
+
+      at Object.<anonymous> (src/sum.test.js:5:21)
+
+PASS src/ok2 step 0: processing unit 0 ok
+PASS src/ok2 step 1: processing unit 1 ok
+PASS src/ok2 step 2: processing unit 2 ok
+PASS src/ok2 step 3: processing unit 3 ok
+PASS src/ok2 step 4: processing unit 4 ok
+PASS src/ok2 step 5: processing unit 5 ok
+PASS src/ok2 step 6: processing unit 6 ok
+PASS src/ok2 step 7: processing unit 7 ok
+PASS src/ok2 step 8: processing unit 8 ok
+PASS src/ok2 step 9: processing unit 9 ok
+PASS src/ok2 step 10: processing unit 10 ok
+PASS src/ok2 step 11: processing unit 11 ok
+PASS src/ok2 step 12: processing unit 12 ok
+PASS src/ok2 step 13: processing unit 13 ok
+PASS src/ok2 step 14: processing unit 14 ok
+PASS src/ok2 step 15: processing unit 15 ok
+PASS src/ok2 step 16: processing unit 16 ok
+PASS src/ok2 step 17: processing unit 17 ok
+PASS src/ok2 step 18: processing unit 18 ok
+PASS src/ok2 step 19: processing unit 19 ok
+PASS src/ok2 step 20: processing unit 20 ok
+PASS src/ok2 step 21: processing unit 21 ok
+PASS src/ok2 step 22: processing unit 22 ok
+PASS src/ok2 step 23: processing unit 23 ok
+PASS src/ok2 step 24: processing unit 24 ok
+Test Suites: 1 failed, 2 passed, 3 total
+Tests:       1 failed, 7 passed, 8 total
+npm ERR! Test failed.  See above for more details.

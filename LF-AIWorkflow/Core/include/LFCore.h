@@ -2,11 +2,18 @@
 //  LFCore.h
 //  LF-AIWorkflow
 //
-//  Public C API of the LFCore module. Stubs only until Phase 2.
+//  Umbrella header of the LFCore module.
 //
 
 #ifndef LFCORE_H
 #define LFCORE_H
+
+#include "lf_ringbuf.h"
+#include "lf_ndjson.h"
+#include "lf_pty.h"
+#include "lf_scan.h"
+#include "lf_tokens.h"
+#include "lf_errscan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,45 +23,9 @@ extern "C" {
 /// Complexity: O(1) time, O(1) space
 const char *lf_core_version(void);
 
-/// Spawns a child process under a pseudo-terminal (stub: always fails with ENOSYS).
+/// Returns 1 when the C core was built with AddressSanitizer or UBSan, else 0 (skips wall-clock guards).
 /// Complexity: O(1) time, O(1) space
-int lf_pty_spawn(const char *const *argv, int *master_fd, int *child_pid);
-
-/// Writes bytes to the PTY master (stub: always fails with ENOSYS).
-/// Complexity: O(n) time, O(1) space, where n is len
-long lf_pty_write(int master_fd, const void *buffer, unsigned long len);
-
-/// Reads bytes from the PTY master (stub: always fails with ENOSYS).
-/// Complexity: O(n) time, O(1) space, where n is len
-long lf_pty_read(int master_fd, void *buffer, unsigned long len);
-
-/// Sends a signal to the child process (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_pty_kill(int child_pid, int signal_number);
-
-/// Reaps the child process and returns its exit status (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_pty_wait(int child_pid, int *exit_status);
-
-/// Fills a ring buffer slot (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_ringbuf_stub(void);
-
-/// Feeds a chunk into the NDJSON line framer (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_ndjson_stub(void);
-
-/// Walks a folder tree for skill and document files (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_scan_stub(void);
-
-/// Estimates the token count of a text (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_tokens_stub(void);
-
-/// Extracts error lines from build or test output (stub: always fails with ENOSYS).
-/// Complexity: O(1) time, O(1) space
-int lf_errscan_stub(void);
+int lf_core_built_with_sanitizer(void);
 
 /// Collapses whitespace and removes boilerplate (stub: always fails with ENOSYS).
 /// Complexity: O(1) time, O(1) space

@@ -1,0 +1,14 @@
+{
+  "tool": "claude 2.1.312 (Claude Code)",
+  "model": "haiku (claude-haiku-5-5)",
+  "date": "2026-10-28",
+  "method": "claude -p <text> --model haiku --output-format json --tools '' --setting-sources '' --system-prompt 'Reply with OK.' --no-session-persistence --disable-slash-commands; total = usage.input_tokens + cache_read_input_tokens + cache_creation_input_tokens. Baseline prompt '.' measured 3983 total (1 token of prompt, 3982 overhead). count = total - 3982. Shell $(cat) strips the trailing newline of each sample.",
+  "baseline_total": 3983,
+  "overhead": 3982,
+  "files": {
+    "tok_english.txt": {"total": 4259, "count": 277},
+    "tok_swift.txt": {"total": 4267, "count": 285},
+    "tok_json.txt": {"total": 4306, "count": 324},
+    "tok_mixed.txt": {"total": 4182, "count": 200}
+  }
+}

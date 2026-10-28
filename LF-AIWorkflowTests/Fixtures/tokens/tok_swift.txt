@@ -1,0 +1,30 @@
+import Foundation
+
+actor SessionStore {
+    private var sessions: [UUID: Session] = [:]
+    private(set) var totalBytes: Int = 0
+
+    func add(_ session: Session) {
+        sessions[session.id] = session
+        totalBytes += session.output.count
+    }
+
+    func remove(id: UUID) -> Session? {
+        guard let removed = sessions.removeValue(forKey: id) else { return nil }
+        totalBytes -= removed.output.count
+        return removed
+    }
+
+    func summary() -> [String] {
+        sessions.values
+            .sorted { $0.startedAt < $1.startedAt }
+            .map { "\($0.title): \($0.output.count) bytes" }
+    }
+}
+
+struct Session: Sendable, Identifiable {
+    let id: UUID
+    var title: String
+    var output: Data
+    var startedAt: Date
+}
