@@ -1,0 +1,4 @@
+[{"window":1,"tab":1,"title":"Café – Überblick 日本語","url":"https://example.com/a","current":true},
+ {"window":1,"tab":2,"title":"Local","url":"file:///etc/passwd","current":false},
+ {"window":1,"tab":3,"title":"Blank","url":"about:blank","current":false},
+ {"window":2,"tab":1,"title":"Second","url":"http://example.org/b?q=1","current":false}]

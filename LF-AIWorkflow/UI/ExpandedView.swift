@@ -61,15 +61,39 @@ struct ExpandedView: View {
     @ViewBuilder private var content: some View {
         switch router.tab {
         case .tasks:
-            if let id = router.detailTaskID {
+            if let id = router.detailTaskID, let research = router.research, research.task(id) != nil {
+                ResearchDetailView(row: research.rows.first { $0.id == id }, research: research, router: router)
+            } else if let id = router.detailTaskID {
                 TaskDetailView(row: model.rows.first { $0.id == id }, model: model, router: router, hover: hover)
             } else {
                 TaskListView(model: model, router: router)
             }
         case .new:
-            PromptComposer(model: model, hover: hover, router: router)
+            newTab
         case .terminal:
             TerminalTabHost(model: model, router: router)
+        }
+    }
+
+    @ViewBuilder private var newTab: some View {
+        if let research = router.researchComposer {
+            VStack(spacing: 0) {
+                Picker("Mode", selection: Bindable(router).composerMode) {
+                    ForEach(ComposerMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 180)
+                .padding(.top, 6)
+                .accessibilityLabel("Task type")
+                if router.composerMode == .research {
+                    ResearchComposer(model: research, hover: hover)
+                } else {
+                    PromptComposer(model: model, hover: hover, router: router)
+                }
+            }
+        } else {
+            PromptComposer(model: model, hover: hover, router: router)
         }
     }
 

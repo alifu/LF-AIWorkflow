@@ -97,6 +97,12 @@ final class WorkflowViewModel {
         }
     }
 
+    /// Shows a short notice in the peek bubble (not tied to a task).
+    /// Complexity: O(1) time, O(1) space
+    func postNotice(_ text: String) {
+        peek = board.notice(text)
+    }
+
     private func openWindow() {
         let (clock, interval) = (clock, coalesceInterval)
         windowTask = Task { [weak self] in

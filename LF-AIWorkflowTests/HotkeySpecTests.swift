@@ -176,7 +176,9 @@ private final class FakeSystem: HotkeySystem {
         return token()
     }
 
-    func registerHotKey(keyCode: UInt32, modifiers: UInt32) -> EventHotKeyRef? {
+    var registeredIDs: [UInt32] = []
+    func registerHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) -> EventHotKeyRef? {
+        registeredIDs.append(id)
         events.append("register \(keyCode)/\(modifiers)")
         guard !hotKeyRefused else { return nil }
         liveHotKeys += 1
@@ -235,5 +237,22 @@ struct GlobalHotkeyTests {
         hotkey?.register()
         hotkey = nil
         #expect(system.liveHotKeys == 0 && system.liveHandlers == 0)
+    }
+
+    @Test func twoHotkeysUseDistinctIDsAndOnlyTheMatchingOneFires() {
+        let system = FakeSystem()
+        var mainFired = 0, inboxFired = 0
+        let main = GlobalHotkey(system: system, action: { mainFired += 1 })
+        let inbox = GlobalHotkey(spec: .optionCommandN, id: GlobalHotkey.inboxID, system: system, action: { inboxFired += 1 })
+        main.register()
+        inbox.register()
+        #expect(system.registeredIDs == [GlobalHotkey.mainID, GlobalHotkey.inboxID])
+        #expect(GlobalHotkey.mainID != GlobalHotkey.inboxID)
+        #expect(inbox.handle(pressedID: GlobalHotkey.mainID) == false)
+        #expect(inboxFired == 0)
+        #expect(main.handle(pressedID: GlobalHotkey.mainID))
+        #expect(mainFired == 1 && inboxFired == 0)
+        #expect(inbox.handle(pressedID: GlobalHotkey.inboxID))
+        #expect(inboxFired == 1)
     }
 }

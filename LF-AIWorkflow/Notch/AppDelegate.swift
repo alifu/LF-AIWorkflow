@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NotchPanel?
     private var controller: NotchWindowController?
     private var hotkeys: HotkeyManager?
+    private var inboxHotkeys: HotkeyManager?
+    private var research: ResearchServices?
     private let clickOutside = ClickOutsideMonitor()
     private var model: WorkflowViewModel?
     private var appearanceObserver: AppearanceObserver?
@@ -25,13 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var engineSettingsTask: Task<Void, Never>?
     private var appliedState: NotchPanelState = .collapsed
     private let hover = HoverController()
-    private let router = PanelRouter()
+    private var router = PanelRouter()
     private let layout = NotchLayoutModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { [weak self] in
-            let model = await AppComposition.makeViewModel()
-            self?.install(model: model)
+            let services = await AppComposition.makeServices()
+            self?.install(services)
         }
     }
 
@@ -41,12 +43,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engineSettingsTask?.cancel()
         model?.stop()
         hotkeys?.stop()
+        inboxHotkeys?.stop()
         clickOutside.stop()
         controller?.stop()
     }
 
-    private func install(model: WorkflowViewModel) {
+    private func install(_ services: AppServices) {
+        let model = services.model
         self.model = model
+        self.research = services.research
+        router = PanelRouter(research: services.research.viewModel, researchComposer: services.research.composer)
+        refreshResearchState(services.research)
         let panel = NotchPanel()
         let (hover, router, layout) = (self.hover, self.router, self.layout)
         let hosting = NSHostingView(rootView: ThemedRoot(settings: AppComposition.settings) {
@@ -70,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: { [hover] in hover.toggleFromHotkey() })
         self.hotkeys = hotkeys
         applyHotkey()
+        installInboxHotkey(services.research, model: model)
 
         observePanelState()
         observeEngineSettings()
@@ -93,6 +101,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !registered { AppLog.notch.error("global hotkey \(spec.displayString, privacy: .public) could not be registered") }
     }
 
+    /// Reads the Safari permission (no prompt) and the inbox size for the Research tab.
+    private func refreshResearchState(_ research: ResearchServices) {
+        research.viewModel.setSafariState(SafariPermission.current())
+        Task { [viewModel = research.viewModel, inbox = research.inbox] in
+            let count = (try? await inbox.items().count) ?? 0
+            viewModel.setInboxCount(count)
+        }
+    }
+
+    /// The second hotkey saves the current Safari tab to the research inbox and confirms in the peek bubble.
+    private func installInboxHotkey(_ research: ResearchServices, model: WorkflowViewModel) {
+        let capture = research.capture
+        let viewModel = research.viewModel
+        inboxHotkeys = HotkeyManager(
+            factory: { spec, action in GlobalHotkey(spec: spec, id: GlobalHotkey.inboxID, action: action) },
+            action: {
+                Task { @MainActor in
+                    let outcome = await capture.capture()
+                    if let count = outcome.count { viewModel.setInboxCount(count) }
+                    model.postNotice(outcome.message)
+                }
+            })
+        applyInboxHotkey()
+    }
+
+    private func applyInboxHotkey() {
+        let settings = AppComposition.settings
+        let spec = withObservationTracking {
+            settings.inboxHotkey
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.applyInboxHotkey() }
+        }
+        if inboxHotkeys?.apply(spec) != true {
+            AppLog.notch.error("inbox hotkey \(spec.displayString, privacy: .public) could not be registered")
+        }
+    }
+
     /// Re-arms itself after every settings change and hands the engine a fresh copy (new tasks only).
     private func observeEngineSettings() {
         withObservationTracking {
@@ -110,7 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engineSettingsTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.settingsDebounce) } catch { return }
             guard let self, let model = self.model else { return }
-            await model.applySettings(EngineSettings.from(AppComposition.settings.snapshot()))
+            let snapshot = AppComposition.settings.snapshot()
+            await model.applySettings(EngineSettings.from(snapshot))
+            await self.research?.pipeline.updateSettings(ResearchSettings(snapshot: snapshot))
         }
     }
 

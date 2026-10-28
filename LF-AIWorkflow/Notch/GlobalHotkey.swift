@@ -16,7 +16,7 @@ protocol HotkeySystem: AnyObject {
     /// Installs the hotkey-pressed handler; `owner` is passed back to the callback. Nil when refused.
     func installHandler(owner: UnsafeMutableRawPointer) -> EventHandlerRef?
     /// Registers the key combination. Nil when refused (for example already taken).
-    func registerHotKey(keyCode: UInt32, modifiers: UInt32) -> EventHotKeyRef?
+    func registerHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) -> EventHotKeyRef?
     func unregisterHotKey(_ ref: EventHotKeyRef)
     func removeHandler(_ ref: EventHandlerRef)
 }
@@ -34,10 +34,10 @@ final class CarbonHotkeySystem: HotkeySystem {
     }
 
     /// Complexity: O(1) time, O(1) space
-    func registerHotKey(keyCode: UInt32, modifiers: UInt32) -> EventHotKeyRef? {
+    func registerHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) -> EventHotKeyRef? {
         var ref: EventHotKeyRef?
-        let id = EventHotKeyID(signature: Self.signature, id: 1)
-        let status = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &ref)
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
+        let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref)
         return status == noErr ? ref : nil
     }
 
@@ -48,6 +48,11 @@ final class CarbonHotkeySystem: HotkeySystem {
 /// System-wide hotkey through Carbon `RegisterEventHotKey` (no Accessibility permission needed).
 /// Every successful `register()` is paired with one `unregister()` (explicit or in `deinit`).
 final class GlobalHotkey: HotkeyRegistering {
+    /// Carbon hotkey ids: each `GlobalHotkey` ignores presses that carry another id.
+    static let mainID: UInt32 = 1
+    static let inboxID: UInt32 = 2
+
+    private let id: UInt32
     private let keyCode: UInt32
     private let modifiers: UInt32
     private let action: () -> Void
@@ -55,7 +60,8 @@ final class GlobalHotkey: HotkeyRegistering {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
 
-    init(spec: HotkeySpec = .default, system: any HotkeySystem = CarbonHotkeySystem(), action: @escaping () -> Void) {
+    init(spec: HotkeySpec = .default, id: UInt32 = GlobalHotkey.mainID, system: any HotkeySystem = CarbonHotkeySystem(), action: @escaping () -> Void) {
+        self.id = id
         self.keyCode = spec.keyCode
         self.modifiers = spec.modifiers
         self.system = system
@@ -71,7 +77,7 @@ final class GlobalHotkey: HotkeyRegistering {
         guard hotKeyRef == nil else { return true }
         guard let handler = system.installHandler(owner: Unmanaged.passUnretained(self).toOpaque()) else { return false }
         handlerRef = handler
-        guard let hotKey = system.registerHotKey(keyCode: keyCode, modifiers: modifiers) else {
+        guard let hotKey = system.registerHotKey(keyCode: keyCode, modifiers: modifiers, id: id) else {
             unregister()
             return false
         }
@@ -87,13 +93,24 @@ final class GlobalHotkey: HotkeyRegistering {
         handlerRef = nil
     }
 
-    fileprivate func fire() { action() }
+    /// Runs the action only when the pressed Carbon id is this hotkey's own. Returns whether it handled the press.
+    /// Complexity: O(1) time, O(1) space
+    @discardableResult
+    func handle(pressedID: UInt32) -> Bool {
+        guard pressedID == id else { return false }
+        action()
+        return true
+    }
 }
 
 /// Carbon delivers hotkey events on the main thread.
 private nonisolated func globalHotkeyCallback(_ next: EventHandlerCallRef?, _ event: EventRef?, _ userData: UnsafeMutableRawPointer?) -> OSStatus {
     guard let userData else { return OSStatus(eventNotHandledErr) }
     let hotkey = Unmanaged<GlobalHotkey>.fromOpaque(userData).takeUnretainedValue()
-    MainActor.assumeIsolated { hotkey.fire() }
-    return noErr
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                   nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+    guard status == noErr else { return OSStatus(eventNotHandledErr) }
+    let handled = MainActor.assumeIsolated { hotkey.handle(pressedID: hotKeyID.id) }
+    return handled ? noErr : OSStatus(eventNotHandledErr)
 }

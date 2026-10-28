@@ -214,7 +214,8 @@ extension WorkflowEngine {
 
     private static func config(_ base: StageConfig, model: String, tools: [String]) -> StageConfig {
         StageConfig(model: model, escalationModel: base.escalationModel, permissionMode: base.permissionMode,
-                    allowedTools: tools, disallowedTools: base.disallowedTools, maxTurns: base.maxTurns)
+                    allowedTools: tools, disallowedTools: base.disallowedTools, maxTurns: base.maxTurns,
+                    builtinTools: base.builtinTools, isolated: base.isolated, appendSystemPrompt: base.appendSystemPrompt)
     }
 
     /// Override first, then detection. Caches the command and its display on the task.

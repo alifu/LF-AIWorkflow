@@ -48,13 +48,18 @@ struct NotchRootView: View {
     }
 
     private func open(_ message: PeekMessage) {
-        router.show(task: message.taskID)
+        if message.kind == .info {
+            router.tab = .new
+            router.composerMode = .research
+        } else {
+            router.show(task: message.taskID)
+        }
         hover.expand()
     }
 
     private func pose(for message: PeekMessage) -> MascotPose {
         switch message.kind {
-        case .planReady, .needsInput: .attention
+        case .planReady, .needsInput, .info: .attention
         case .failed: .error
         case .done: .done
         }

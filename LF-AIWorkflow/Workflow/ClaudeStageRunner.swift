@@ -24,13 +24,19 @@ nonisolated struct ClaudeStageRunner: ClaudeStageRunning {
     /// Builds the invocation first (an invalid tool rule finishes the stream with the error, nothing is spawned).
     /// Complexity: O(e) time over the child's events, O(1) space beyond the event buffer
     func run(_ request: StageRunRequest) -> AsyncThrowingStream<StageRunEvent, Error> {
+        runInvocation(config: request.config, prompt: request.prompt, sessionId: request.sessionId,
+                      addDirs: request.addDirs, workingDirectory: request.workingDirectory)
+    }
+
+    private func runInvocation(config: StageConfig, prompt: String, sessionId: String?, addDirs: [URL],
+                               workingDirectory: URL) -> AsyncThrowingStream<StageRunEvent, Error> {
         let (executable, baseEnvironment, searchPath) = (self.executable, self.baseEnvironment, self.searchPath)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let invocation = try ClaudeCommandBuilder.invocation(
-                        executable: executable, config: request.config, sessionId: request.sessionId,
-                        addDirs: request.addDirs, workingDirectory: request.workingDirectory, prompt: request.prompt,
+                        executable: executable, config: config, sessionId: sessionId,
+                        addDirs: addDirs, workingDirectory: workingDirectory, prompt: prompt,
                         baseEnvironment: baseEnvironment, searchPath: searchPath)
                     let session = try ClaudeSession()
                     try await session.start(invocation)
@@ -83,5 +89,14 @@ nonisolated struct ClaudeStageRunner: ClaudeStageRunning {
         let texts = message.texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let tools = message.toolUses.map { $0.inputSummary.isEmpty ? $0.name : "\($0.name): \($0.inputSummary)" }
         return (texts + tools).map { String($0.prefix(activityCap)) }
+    }
+}
+
+nonisolated extension ClaudeStageRunner: ResearchClaudeRunning {
+    /// Research entry point: the research folder is the cwd and nothing else is added.
+    /// Complexity: O(e) time over the child's events, O(1) space beyond the event buffer
+    func run(_ request: ResearchRunRequest) -> AsyncThrowingStream<StageRunEvent, Error> {
+        runInvocation(config: request.config, prompt: request.prompt, sessionId: request.sessionId,
+                      addDirs: [], workingDirectory: request.workingDirectory)
     }
 }

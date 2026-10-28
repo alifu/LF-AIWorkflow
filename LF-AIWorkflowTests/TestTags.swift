@@ -9,3 +9,8 @@ extension Tag {
     /// Tests that call the real `claude` CLI (spend tokens); opt in with `LF_RUN_CLAUDE_TESTS=1`.
     @Tag static var requiresClaude: Tag
 }
+
+extension Tag {
+    /// Tests that drive the real Safari (needs Automation permission and an open window); opt in with `LF_RUN_SAFARI_TESTS=1`.
+    @Tag static var requiresSafari: Tag
+}

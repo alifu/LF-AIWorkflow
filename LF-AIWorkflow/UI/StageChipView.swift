@@ -12,7 +12,7 @@ struct StageCelebration: Equatable {
 
 /// One stage chip: icon, marker and label, so status never depends on color.
 struct StageChipView: View {
-    let chip: StageChip
+    let chip: ChipDisplay
     @Environment(\.appTheme) private var theme
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,9 +22,9 @@ struct StageChipView: View {
     var body: some View {
         let palette = theme.palette(for: scheme)
         HStack(spacing: 3) {
-            Image(systemName: StageStyle.icon(chip.step)).font(theme.iconFont.font)
-            Text(StageStyle.marker(chip.status)).font(theme.iconFont.weighted(.bold).font)
-            Text(StageStyle.label(chip.step) + (chip.detail.map { " \($0)" } ?? ""))
+            Image(systemName: chip.icon).font(theme.iconFont.font)
+            Text(chip.marker).font(theme.iconFont.weighted(.bold).font)
+            Text(chip.label)
                 .font((chip.status == .active ? theme.chipFont.weighted(.semibold) : theme.chipFont).font)
         }
         .padding(.horizontal, 7)
@@ -60,7 +60,7 @@ struct StageChipView: View {
     /// Complexity: O(1) time, O(1) space
     private func background(_ palette: ThemePalette) -> Color {
         switch chip.status {
-        case .active: theme.stageColor(chip.step, for: scheme).color
+        case .active: theme.stageColor(chip.colorRole, for: scheme).color
         case .done: palette.chipDoneBackground.color
         case .pending: palette.chipBackground.color
         case .failed: theme.statusFills == .solid ? palette.failedFill.color : palette.chipBackground.color
@@ -96,7 +96,10 @@ struct StageChipView: View {
 }
 
 struct StageChipStrip: View {
-    let chips: [StageChip]
+    let chips: [ChipDisplay]
+
+    init(chips: [StageChip]) { self.chips = chips.map(\.display) }
+    init(displays: [ChipDisplay]) { chips = displays }
 
     var body: some View {
         HStack(spacing: 4) {

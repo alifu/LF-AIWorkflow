@@ -17,6 +17,8 @@ nonisolated struct MascotFrame: Sendable, Hashable {
     let mouth: MouthShape
     let sweat: Bool
     let alert: Bool
+    /// Reading pose: a sheet of paper in the lower right.
+    let paper: Bool
 
     /// Idle blinks once per period; the eyes are closed for the first `blinkDuration` seconds of each period.
     static let blinkPeriod: TimeInterval = 4
@@ -35,7 +37,8 @@ nonisolated struct MascotFrame: Sendable, Hashable {
             bob: animated && isTyping(pose) ? bobOffset(at: time) : 0,
             mouth: mouth(for: pose),
             sweat: isError(pose),
-            alert: isAttention(pose))
+            alert: isAttention(pose),
+            paper: isReading(pose))
     }
 
     /// Complexity: O(1) time, O(1) space
@@ -57,6 +60,7 @@ nonisolated struct MascotFrame: Sendable, Hashable {
         case .done: .grin
         case .error: .flat
         case .attention: .open
+        case .reading: .flat
         }
     }
 
@@ -70,6 +74,10 @@ nonisolated struct MascotFrame: Sendable, Hashable {
 
     private static func isError(_ pose: MascotPose) -> Bool {
         if case .error = pose { true } else { false }
+    }
+
+    private static func isReading(_ pose: MascotPose) -> Bool {
+        if case .reading = pose { true } else { false }
     }
 
     private static func isAttention(_ pose: MascotPose) -> Bool {
@@ -86,6 +94,7 @@ extension MascotPose {
         case .done: "Done"
         case .error: "Error"
         case .attention: "Needs attention"
+        case .reading: "Reading"
         }
     }
 }
@@ -137,6 +146,7 @@ private struct MascotPreviewRow: View {
 #Preview("Done") { MascotPreviewRow(pose: .done) }
 #Preview("Error") { MascotPreviewRow(pose: .error) }
 #Preview("Attention") { MascotPreviewRow(pose: .attention) }
+#Preview("Reading") { MascotPreviewRow(pose: .reading) }
 
 /// How the mascot is drawn in the active theme. Built from `MascotStyle` and the outline token, so views never branch on a theme.
 nonisolated struct MascotLook: Sendable, Equatable {

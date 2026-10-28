@@ -1,0 +1,2 @@
+- Alpha ships worldwide and benchmarks as the faster product.
+- Beta costs half as much as Alpha.

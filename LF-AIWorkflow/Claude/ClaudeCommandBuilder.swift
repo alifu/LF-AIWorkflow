@@ -11,11 +11,14 @@ nonisolated enum ClaudeCommandError: Error, Sendable, Equatable {
     case invalidSessionId(String)
     case invalidToolRule(String)
     case relativeDirectory(String)
+    case invalidToolName(String)
+    case invalidSystemPrompt
 }
 
 /// Turns a `StageConfig` into `claude` CLI arguments, validating every value at the boundary.
 nonisolated enum ClaudeCommandBuilder {
     static let maxTurnsRange = 1...100
+    static let maxSystemPromptBytes = 8 * 1024
     private static let modelCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._[]-")
     /// Exact variable names removed from the child environment (session identity only; auth/provider vars such as
     /// `CLAUDE_CODE_OAUTH_TOKEN` or `CLAUDE_CODE_USE_BEDROCK` must survive). Shared by builder and `ClaudeSession`.
@@ -34,6 +37,9 @@ nonisolated enum ClaudeCommandBuilder {
         for rule in config.allowedTools + config.disallowedTools where rule.isEmpty || rule.contains(",") || rule.hasPrefix("-") {
             throw .invalidToolRule(rule)
         }
+        for name in config.builtinTools ?? [] where !isValidToolName(name) { throw .invalidToolName(name) }
+        if let prompt = config.appendSystemPrompt,
+           prompt.utf8.count > maxSystemPromptBytes || prompt.utf8.contains(0) { throw .invalidSystemPrompt }
         var dirPaths: [String] = []
         for dir in addDirs {
             guard dir.path.hasPrefix("/") else { throw .relativeDirectory(dir.path) }
@@ -44,6 +50,9 @@ nonisolated enum ClaudeCommandBuilder {
                     "--model", config.model,
                     "--max-turns", String(config.maxTurns),
                     "--permission-mode", config.permissionMode.rawValue]
+        if let tools = config.builtinTools { args += ["--tools", tools.joined(separator: ",")] }
+        if config.isolated { args += ["--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"] }
+        if let prompt = config.appendSystemPrompt { args += ["--append-system-prompt", prompt] }
         if !config.allowedTools.isEmpty { args += ["--allowedTools", config.allowedTools.joined(separator: ",")] }
         if !config.disallowedTools.isEmpty { args += ["--disallowedTools", config.disallowedTools.joined(separator: ",")] }
         for path in dirPaths { args += ["--add-dir", path] }
@@ -79,6 +88,10 @@ nonisolated enum ClaudeCommandBuilder {
 
     private static func isValidModel(_ model: String) -> Bool {
         !model.isEmpty && !model.hasPrefix("-") && model.unicodeScalars.allSatisfy(modelCharacters.contains)
+    }
+
+    private static func isValidToolName(_ name: String) -> Bool {
+        !name.isEmpty && name.unicodeScalars.allSatisfy { ($0.value >= 65 && $0.value <= 90) || ($0.value >= 97 && $0.value <= 122) }
     }
 
     private static func isValidSessionId(_ id: String) -> Bool {

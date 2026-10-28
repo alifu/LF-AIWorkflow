@@ -68,6 +68,8 @@ final class SettingsStore {
         static let dayBudget = "settings.dayBudget"
         static let promptCaps = "settings.promptCaps"
         static let toolPaths = "settings.toolPaths"
+        static let inboxHotkey = "settings.inboxHotkey"
+        static let researchRoot = "settings.researchRoot"
     }
 
     /// Per-task token cap default: the same value `TokenBudget.default` uses.
@@ -87,6 +89,16 @@ final class SettingsStore {
             // Encoding a two-integer struct cannot fail, so the optional is never nil in practice.
             if let data = try? JSONEncoder().encode(hotkey) { defaults.set(data, forKey: Keys.hotkey) }
         }
+    }
+    /// Saves the current Safari tab to the research inbox. Must be valid and differ from `hotkey`.
+    var inboxHotkey: HotkeySpec = .controlOptionCommandC {
+        didSet {
+            if let data = try? JSONEncoder().encode(inboxHotkey) { defaults.set(data, forKey: Keys.inboxHotkey) }
+        }
+    }
+    /// Folder for research output; empty means `defaultResearchRoot`. Absolute paths only.
+    var researchRootPath: String = "" {
+        didSet { defaults.set(researchRootPath, forKey: Keys.researchRoot) }
     }
     var editorChoice: EditorChoice = .systemDefault {
         didSet { defaults.set(editorChoice.rawValue, forKey: Keys.editorChoice) }
@@ -141,6 +153,17 @@ final class SettingsStore {
         }
     }
 
+    /// `~/Documents/LF-AIWorkflow/Research`.
+    nonisolated static func defaultResearchRoot(home: String = NSHomeDirectory()) -> URL {
+        URL(fileURLWithPath: home, isDirectory: true).appendingPathComponent("Documents/LF-AIWorkflow/Research", isDirectory: true)
+    }
+
+    /// The configured research root, or the default when unset or not an absolute path.
+    /// Complexity: O(1) time, O(1) space
+    var researchRoot: URL {
+        researchRootPath.hasPrefix("/") ? URL(fileURLWithPath: researchRootPath, isDirectory: true) : Self.defaultResearchRoot()
+    }
+
     /// Set by the app after each registration attempt; not persisted. False means the system refused the combination.
     var hotkeyRegistered = true
 
@@ -168,6 +191,8 @@ final class SettingsStore {
         hotkey = stored.data(forKey: Keys.hotkey)
             .flatMap { try? JSONDecoder().decode(HotkeySpec.self, from: $0) }
             .flatMap { HotkeySpec.presets.contains($0) ? $0 : nil } ?? .default
+        inboxHotkey = Self.storedInboxHotkey(stored, mainHotkey: hotkey)
+        researchRootPath = stored.string(forKey: Keys.researchRoot) ?? ""
         editorChoice = Self.enumValue(stored, Keys.editorChoice, fallback: .systemDefault)
         stageModels = Self.sanitizedModels(
             Self.stageKeyed(stored.dictionary(forKey: Keys.stageModels) as? [String: String] ?? [:]))
@@ -192,6 +217,14 @@ final class SettingsStore {
     }
 
     // MARK: - Decoding helpers
+
+    /// A stored inbox hotkey is kept only when valid and different from the main hotkey.
+    /// Complexity: O(1) time, O(1) space
+    private static func storedInboxHotkey(_ defaults: UserDefaults, mainHotkey: HotkeySpec) -> HotkeySpec {
+        guard let spec = defaults.data(forKey: Keys.inboxHotkey).flatMap({ try? JSONDecoder().decode(HotkeySpec.self, from: $0) }),
+              spec.validate() == .valid, spec != mainHotkey else { return .controlOptionCommandC }
+        return spec
+    }
 
     /// Complexity: O(1) time, O(1) space
     private static func enumValue<T: RawRepresentable & Sendable>(_ defaults: UserDefaults, _ key: String, fallback: T) -> T

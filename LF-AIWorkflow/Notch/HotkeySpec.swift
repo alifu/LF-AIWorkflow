@@ -17,6 +17,8 @@ extension HotkeySpec {
     static let optionCommandSpace = HotkeySpec.default
     static let controlOptionSpace = HotkeySpec(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey))
     static let optionCommandN = HotkeySpec(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(optionKey | cmdKey))
+    /// Default for the research inbox (save the current Safari tab): Control, Option, Command and C.
+    static let controlOptionCommandC = HotkeySpec(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | optionKey | cmdKey))
 
     /// The combinations the Settings picker offers; the first is the default.
     static let presets: [HotkeySpec] = [.optionCommandSpace, .controlOptionSpace, .optionCommandN]
@@ -46,6 +48,7 @@ extension HotkeySpec {
         switch Int(code) {
         case kVK_Space: "Space"
         case kVK_ANSI_N: "N"
+        case kVK_ANSI_C: "C"
         case kVK_Return: "Return"
         default: "Key \(code)"
         }

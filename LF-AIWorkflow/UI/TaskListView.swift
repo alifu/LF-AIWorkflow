@@ -13,7 +13,8 @@ struct TaskListView: View {
 
     var body: some View {
         let palette = theme.palette(for: scheme)
-        if model.rows.isEmpty {
+        let items = MergedTaskList.merge(code: model.rows, research: router.research?.rows ?? [])
+        if items.isEmpty {
             VStack(spacing: 6) {
                 Spacer()
                 Text("No tasks").font(theme.titleFont.font)
@@ -25,7 +26,13 @@ struct TaskListView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(model.rows) { TaskRowView(row: $0, model: model, router: router) }
+                    ForEach(items) { item in
+                        switch item {
+                        case .code(let row): TaskRowView(row: row, model: model, router: router)
+                        case .research(let row):
+                            if let research = router.research { ResearchRowView(row: row, research: research, onOpen: { router.show(task: row.id) }) }
+                        }
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)

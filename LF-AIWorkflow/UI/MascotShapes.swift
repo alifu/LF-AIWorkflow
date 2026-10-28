@@ -24,6 +24,7 @@ enum MascotShapes {
         drawMouth(frame.mouth, bob: bob, unit: unit, colors: colors, in: &context)
         if frame.sweat { drawSweat(unit: unit, colors: colors, in: &context) }
         if frame.alert { drawAlert(unit: unit, colors: colors, in: &context) }
+        if frame.paper { drawPaper(bob: bob, unit: unit, colors: colors, in: &context) }
     }
 
     /// Two halftone-style dots on the cheeks (Pop Art shading).
@@ -100,5 +101,21 @@ enum MascotShapes {
                      with: .color(colors.alert.color))
         context.fill(Path(ellipseIn: CGRect(x: unit(0.83), y: unit(0.26), width: unit(0.08), height: unit(0.08))),
                      with: .color(colors.alert.color))
+    }
+
+    /// A sheet with two text lines held at the lower right (Reading pose). Static, so Reduce Motion needs no special case.
+    /// Complexity: O(1) time, O(1) space
+    private static func drawPaper(bob: CGFloat, unit: (CGFloat) -> CGFloat, colors: MascotColors, in context: inout GraphicsContext) {
+        let sheet = CGRect(x: unit(0.56), y: unit(0.62) + bob, width: unit(0.34), height: unit(0.34))
+        context.fill(Path(roundedRect: sheet, cornerRadius: unit(0.03)), with: .color(colors.face.color))
+        context.stroke(Path(roundedRect: sheet, cornerRadius: unit(0.03)), with: .color(colors.features.color),
+                       lineWidth: unit(0.03))
+        for lineY in [CGFloat(0.72), 0.82] {
+            var line = Path()
+            line.move(to: CGPoint(x: unit(0.61), y: unit(lineY) + bob))
+            line.addLine(to: CGPoint(x: unit(0.85), y: unit(lineY) + bob))
+            context.stroke(line, with: .color(colors.features.color),
+                           style: StrokeStyle(lineWidth: unit(0.025), lineCap: .round))
+        }
     }
 }

@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /private/
+Allow: /private/public/
+Disallow: /*.pdf$
+Disallow: /tmp
+Crawl-delay: 3

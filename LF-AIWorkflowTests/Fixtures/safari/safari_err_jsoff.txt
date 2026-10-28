@@ -1,0 +1,1 @@
+execution error: Error: Safari got an error: You must enable the 'Allow JavaScript from Apple Events' option in Safari's Develop menu. (8)

@@ -16,6 +16,38 @@ nonisolated struct StageConfig: Sendable, Equatable, Codable {
     let allowedTools: [String]
     let disallowedTools: [String]
     let maxTurns: Int
+    /// Built-in tool set (`--tools`): nil = CLI default, `[]` = none.
+    let builtinTools: [String]?
+    /// Adds `--strict-mcp-config --setting-sources project --disable-slash-commands`.
+    let isolated: Bool
+    let appendSystemPrompt: String?
+
+    init(model: String, escalationModel: String?, permissionMode: PermissionMode, allowedTools: [String],
+         disallowedTools: [String], maxTurns: Int, builtinTools: [String]? = nil, isolated: Bool = false,
+         appendSystemPrompt: String? = nil) {
+        self.model = model
+        self.escalationModel = escalationModel
+        self.permissionMode = permissionMode
+        self.allowedTools = allowedTools
+        self.disallowedTools = disallowedTools
+        self.maxTurns = maxTurns
+        self.builtinTools = builtinTools
+        self.isolated = isolated
+        self.appendSystemPrompt = appendSystemPrompt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(model: try c.decode(String.self, forKey: .model),
+                  escalationModel: try c.decodeIfPresent(String.self, forKey: .escalationModel),
+                  permissionMode: try c.decode(PermissionMode.self, forKey: .permissionMode),
+                  allowedTools: try c.decode([String].self, forKey: .allowedTools),
+                  disallowedTools: try c.decode([String].self, forKey: .disallowedTools),
+                  maxTurns: try c.decode(Int.self, forKey: .maxTurns),
+                  builtinTools: try c.decodeIfPresent([String].self, forKey: .builtinTools),
+                  isolated: try c.decodeIfPresent(Bool.self, forKey: .isolated) ?? false,
+                  appendSystemPrompt: try c.decodeIfPresent(String.self, forKey: .appendSystemPrompt))
+    }
 }
 
 /// Pure table of stage permissions and models (plan §3 "Stage policy").
@@ -62,7 +94,9 @@ nonisolated struct StagePolicy: Sendable, Equatable {
         denied = denied.filter { seen.insert($0).inserted }
         return StageConfig(model: base.model, escalationModel: base.escalationModel,
                            permissionMode: base.permissionMode, allowedTools: allowed,
-                           disallowedTools: denied, maxTurns: base.maxTurns)
+                           disallowedTools: denied, maxTurns: base.maxTurns,
+                           builtinTools: base.builtinTools, isolated: base.isolated,
+                           appendSystemPrompt: base.appendSystemPrompt)
     }
 
     /// New policy with the user's model and turn overrides applied per stage; missing entries keep the table value.
@@ -73,7 +107,8 @@ nonisolated struct StagePolicy: Sendable, Equatable {
             copy[stage] = StageConfig(
                 model: models[stage] ?? base.model, escalationModel: base.escalationModel,
                 permissionMode: base.permissionMode, allowedTools: base.allowedTools,
-                disallowedTools: base.disallowedTools, maxTurns: maxTurns[stage] ?? base.maxTurns)
+                disallowedTools: base.disallowedTools, maxTurns: maxTurns[stage] ?? base.maxTurns,
+                builtinTools: base.builtinTools, isolated: base.isolated, appendSystemPrompt: base.appendSystemPrompt)
         }
         return StagePolicy(configs: copy)
     }

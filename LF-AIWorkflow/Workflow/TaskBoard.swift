@@ -25,12 +25,18 @@ nonisolated struct CollapsedSummary: Sendable, Equatable {
 }
 
 nonisolated struct PeekMessage: Sendable, Equatable {
-    enum Kind: Sendable, Equatable { case planReady, failed, done, needsInput }
+    enum Kind: Sendable, Equatable { case planReady, failed, done, needsInput
+        /// Plain notice not tied to a task (for example "Saved to inbox (3)").
+        case info
+    }
     let taskID: UUID
     let text: String
     let kind: Kind
     /// Increases with every message so an identical repeat still changes the value.
     let sequence: Int
+
+    /// `taskID` of notices that are not about a task.
+    static let noTask = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 }
 
 /// Pure state behind the view model: latest snapshot per task, finish times, hidden rows, peek dedupe.
@@ -53,6 +59,13 @@ nonisolated struct TaskBoard: Sendable {
         guard showAlerts, previous != task.state, let kind = Self.peekKind(task.state) else { return nil }
         peekCount += 1
         return PeekMessage(taskID: task.id, text: "\(task.title): \(Self.peekText(task, kind))", kind: kind, sequence: peekCount)
+    }
+
+    /// A plain notice that belongs to no task; shares the sequence counter so repeats still differ.
+    /// Complexity: O(1) time, O(1) space
+    mutating func notice(_ text: String) -> PeekMessage {
+        peekCount += 1
+        return PeekMessage(taskID: PeekMessage.noTask, text: text, kind: .info, sequence: peekCount)
     }
 
     /// Hides done, failed and cancelled rows (the tasks stay known).
@@ -110,6 +123,7 @@ nonisolated struct TaskBoard: Sendable {
         case .failed: "failed"
         case .done: "done"
         case .needsInput: TaskText.waitText(task.waitReason)
+        case .info: ""
         }
     }
 }

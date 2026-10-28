@@ -66,6 +66,12 @@ Research mode reads the Safari tabs you choose, cleans them, and asks Claude to 
 
 Without these, Research mode can still crawl public URLs, but can't read your open Safari tabs. Research files are saved in `~/Documents/LF-AIWorkflow/Research/`.
 
+- **Without Safari access**, the New tab shows a setup sheet with these steps; crawling public URLs still works.
+- **Save a tab for later**: press **⌃⌥⌘C** in Safari. The page text is saved to the research inbox and the notch shows "Saved to inbox (n)". Pages with a password field are never saved.
+- **Crawler limits**: public http(s) pages only (private and local addresses are refused), robots.txt is obeyed, at most one request per second per host, and page count, depth and time are capped per task.
+- **Where data is stored**: one folder per task under `~/Documents/LF-AIWorkflow/Research/` (sources, report, CSV) and the inbox under `inbox/` in the same folder.
+- **What is sent to Claude**: only the cleaned text of the pages you keep after the preview, wrapped as untrusted data. Claude runs with no tools, so it cannot run commands, edit files or browse. Nothing is sent before you press Send.
+
 ### Recommended project setup
 
 - A short `CLAUDE.md` or `AGENTS.md` (about 1 page) in the project root. It is sent on every run, so the app warns when it is missing or too long.

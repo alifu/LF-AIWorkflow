@@ -34,12 +34,21 @@ enum StageStyle {
     }
 
     /// Text marker for a chip status.
-    static func marker(_ status: StageChip.Status) -> String {
+    nonisolated static func marker(_ status: StageChip.Status) -> String {
         switch status {
         case .pending: "○"
         case .active: "●"
         case .done: "✓"
         case .failed: "✕"
         }
+    }
+}
+
+extension StageChip {
+    /// The shared chip description both pipelines draw.
+    var display: ChipDisplay {
+        ChipDisplay(id: step.rawValue, label: StageStyle.label(step) + (detail.map { " \($0)" } ?? ""),
+                    icon: StageStyle.icon(step), marker: StageStyle.marker(status), colorRole: step,
+                    status: status, accessibilityLabel: accessibilityLabel)
     }
 }
