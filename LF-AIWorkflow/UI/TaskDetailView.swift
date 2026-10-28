@@ -1,0 +1,108 @@
+//
+//  TaskDetailView.swift
+//  LF-AIWorkflow
+//
+
+import SwiftUI
+
+/// One task in detail: stage strip, mascot, plan/review slots, its activity log and worktree footer.
+struct TaskDetailView: View {
+    let row: TaskRowModel?
+    let model: any WorkflowControlling
+    let router: PanelRouter
+    var hover: HoverController?
+    @State private var approvalDismissed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button { router.closeDetail() } label: { Label("Back", systemImage: "chevron.left") }
+                    .controlSize(.small)
+                    .accessibilityLabel("Back to task list")
+                    .keyboardShortcut(.cancelAction)
+                Text(row?.title ?? "Task").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                Spacer()
+                if let row, row.actions.contains(.cancel) {
+                    Button("Cancel task", role: .destructive) { Task { await model.cancel(row.id) } }
+                        .controlSize(.small)
+                }
+            }
+            if let row {
+                HStack(alignment: .top, spacing: 12) {
+                    MascotPlaceholder(pose: pose(row), size: 64)
+                    VStack(alignment: .leading, spacing: 6) {
+                        StageChipStrip(chips: row.chips)
+                        Text(row.statusLine).font(.system(size: 12)).foregroundStyle(row.needsAttention ? Color.orange : .secondary)
+                        detailActions(row)
+                    }
+                }
+                if let task = model.task(row.id) {
+                    if row.actions.contains(.viewReview) {
+                        ReviewView(task: task, onDone: { router.closeDetail() }).id(task.reviewFile)
+                    }
+                    if row.actions.contains(.viewPlan) { PlanView(task: task).id(row.state) }
+                }
+                TaskLogPane(model: model, taskID: row.id, caption: "Activity · read-only")
+                footer(row)
+            } else {
+                Text("This task is no longer listed.").foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .overlay { approvalSheet }
+        .onChange(of: row?.id) { _, _ in approvalDismissed = false }
+    }
+
+    /// The in-panel approval sheet, shown while the plan waits for a decision.
+    @ViewBuilder private var approvalSheet: some View {
+        if let row, row.actions.contains(.approve), !approvalDismissed, let task = model.task(row.id) {
+            ZStack {
+                Color.black.opacity(0.55)
+                PlanApprovalView(task: task, decider: model, hover: hover, onClose: { approvalDismissed = true })
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func pose(_ row: TaskRowModel) -> MascotPose {
+        switch row.state {
+        case .done: .done
+        case .failed: .error
+        case .awaitingApproval, .awaitingInput: .attention
+        case .cancelled, .queued: .idle
+        default: .typing
+        }
+    }
+
+    private func detailActions(_ row: TaskRowModel) -> some View {
+        HStack(spacing: 6) {
+            if row.actions.contains(.approve) {
+                Button("Review plan") { approvalDismissed = false }
+                    .accessibilityHint("Opens the plan approval sheet")
+                Button("Approve") { Task { await model.approve(row.id) } }.buttonStyle(.borderedProminent)
+            }
+            if row.actions.contains(.resume) { Button("Resume") { Task { await model.resume(row.id, raising: 0) } } }
+            if row.actions.contains(.skipTests) { Button("Skip tests") { Task { await model.skipTests(row.id) } } }
+            if row.actions.contains(.openWorktree) { Button("Open worktree") { model.openWorktree(row.id) } }
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder private func footer(_ row: TaskRowModel) -> some View {
+        if let branch = row.branch, let path = row.worktreePath {
+            Text("\(branch) · \(path)")
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+}
+
+#if DEBUG
+#Preview {
+    let model = PreviewModel()
+    TaskDetailView(row: model.rows.first, model: model, router: PanelRouter())
+        .frame(width: 560, height: 360).background(.black).environment(\.colorScheme, .dark)
+}
+#endif

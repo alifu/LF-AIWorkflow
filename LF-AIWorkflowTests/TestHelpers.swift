@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 @testable import LF_AIWorkflow
 
 /// Shared fixtures for Phase 4 suites: temp dirs, fake CLIs, temp git repos. All spawns go through `CommandRunner`.
@@ -76,5 +77,73 @@ enum TestEnv {
             try await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+}
+
+/// Deterministic clock: time only moves through `advance(by:)`. Sleepers register synchronously, so tests
+/// can wait for them with `waitForSleepers` instead of sleeping.
+final class ManualClock: Clock, Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper { let deadline: Instant; let continuation: CheckedContinuation<Void, any Error> }
+    private struct Waiter { let count: Int; let continuation: CheckedContinuation<Void, Never> }
+    private struct State { var now = Instant(offset: .zero); var sleepers: [UUID: Sleeper] = [:]; var waiters: [Waiter] = [] }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var now: Instant { state.withLock { $0.now } }
+    var minimumResolution: Duration { .zero }
+    var sleeperCount: Int { state.withLock { $0.sleepers.count } }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                enum Outcome { case resume, cancel, wait([Waiter]) }
+                let outcome: Outcome = state.withLock { s in
+                    if Task.isCancelled { return .cancel }
+                    if deadline <= s.now { return .resume }
+                    s.sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                    let ready = s.waiters.filter { $0.count <= s.sleepers.count }
+                    s.waiters.removeAll { $0.count <= s.sleepers.count }
+                    return .wait(ready)
+                }
+                switch outcome {
+                case .resume: continuation.resume()
+                case .cancel: continuation.resume(throwing: CancellationError())
+                case .wait(let ready): ready.forEach { $0.continuation.resume() }
+                }
+            }
+        } onCancel: {
+            let sleeper = state.withLock { $0.sleepers.removeValue(forKey: id) }
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Suspends until at least `count` tasks are sleeping on this clock.
+    func waitForSleepers(_ count: Int = 1) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let ready = state.withLock { s -> Bool in
+                if s.sleepers.count >= count { return true }
+                s.waiters.append(Waiter(count: count, continuation: continuation))
+                return false
+            }
+            if ready { continuation.resume() }
+        }
+    }
+
+    /// Moves time forward and wakes every sleeper whose deadline passed.
+    func advance(by duration: Duration) {
+        let due: [Sleeper] = state.withLock { s in
+            s.now = s.now.advanced(by: duration)
+            let ids = s.sleepers.filter { $0.value.deadline <= s.now }.map(\.key)
+            return ids.compactMap { s.sleepers.removeValue(forKey: $0) }
+        }
+        due.forEach { $0.continuation.resume() }
     }
 }

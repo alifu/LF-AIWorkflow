@@ -75,6 +75,7 @@ extension WorkflowEngine {
         }
         let outcome = await deps.tests.run(command, in: task.workingDirectory)
         guard isCurrent(id, .test) else { return }
+        await log(Self.summary(of: outcome, command: command), id, .test)
         switch outcome {
         case .passed: apply(id, to: .review) { $0.with(lastErrors: nil) }
         case .timedOut: park(id, .testTimedOut)
@@ -133,13 +134,14 @@ extension WorkflowEngine {
             for try await event in deps.claude.run(request) {
                 switch event {
                 case .usage(let usage): lastUsage = usage
-                case .activity: break
+                case .activity(let line): await log(line, id, state)
                 case .finished(let outcome): finished = outcome
                 }
             }
         } catch {
             record(usage: lastUsage, stage: request.stage, id: id)
             if isCurrent(id, state) {
+                await log("failed: \(error)", id, state)
                 fail(id, error is ClaudeCommandError ? .invalidCommand("\(error)") : .claudeError("\(error)"))
             }
             return nil
@@ -147,12 +149,29 @@ extension WorkflowEngine {
         record(usage: finished?.usage ?? lastUsage, stage: request.stage, id: id, session: finished?.sessionId)
         guard isCurrent(id, state) else { return nil }
         guard let outcome = finished else {
+            await log("the \(request.stage.displayName) stage ended without a result", id, state)
             fail(id, .claudeError("the \(request.stage.displayName) stage ended without a result")); return nil
         }
         if outcome.isError {
+            await log("failed: \(outcome.text ?? "claude reported an error")", id, state)
             fail(id, .claudeError(outcome.text ?? "claude reported an error")); return nil
         }
         return outcome
+    }
+
+    /// Writes one line to the optional activity sink.
+    func log(_ text: String, _ id: UUID, _ state: TaskState) async {
+        await deps.log?.append(text, stage: state, to: id)
+    }
+
+    /// One-line test result for the log. Complexity: O(1) time, O(1) space
+    static func summary(of outcome: TestOutcome, command: TestCommand) -> String {
+        switch outcome {
+        case .passed: "tests passed: \(command.display)"
+        case .failed(let status, let errors, _): "tests failed (exit \(status)): \(command.display)\n\(errors)"
+        case .timedOut: "tests timed out: \(command.display)"
+        case .notFound: "test tool not found: \(command.display)"
+        }
     }
 
     private func record(usage: TokenUsage, stage: WorkflowStage, id: UUID, session: String? = nil) {

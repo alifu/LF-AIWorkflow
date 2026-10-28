@@ -34,4 +34,6 @@ nonisolated struct EngineDependencies: Sendable {
     let graph: any GraphQuerying
     let git: any GitWorking
     let worktrees: any WorktreeProviding
+    /// Optional activity sink (the Terminal tab). Nil in tests that do not care.
+    var log: (any TaskLogging)? = nil
 }

@@ -44,24 +44,29 @@ nonisolated struct ReviewReport: Sendable, Equatable {
     /// (stable for equal keys).
     /// Complexity: O(n + f log f) time, O(f) space
     static func parse(_ text: String) -> ReviewReport {
-        var found: [(index: Int, finding: Finding)] = []
+        var found: [Finding] = []
         var unparsed = 0
         for rawLine in text.split(whereSeparator: \.isNewline) {
             switch parseLine(rawLine) {
-            case .finding(let f): found.append((found.count, f))
+            case .finding(let f): found.append(f)
             case .malformed: unparsed += 1
             case .prose: break
             }
         }
-        found.sort { lhs, rhs in
-            let (a, b) = (lhs.finding, rhs.finding)
+        return ReviewReport(findings: ordered(found), unparsedLineCount: unparsed)
+    }
+
+    /// Severity, then file, then line (no line last); equal keys keep their input order.
+    /// Complexity: O(f log f) time, O(f) space
+    static func ordered(_ findings: [Finding]) -> [Finding] {
+        findings.enumerated().sorted { lhs, rhs in
+            let (a, b) = (lhs.element, rhs.element)
             if a.severity != b.severity { return a.severity < b.severity }
             if a.file != b.file { return a.file < b.file }
             let (la, lb) = (a.line ?? Int.max, b.line ?? Int.max)
             if la != lb { return la < lb }
-            return lhs.index < rhs.index
-        }
-        return ReviewReport(findings: found.map(\.finding), unparsedLineCount: unparsed)
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// Complexity: O(f) time, O(f) space

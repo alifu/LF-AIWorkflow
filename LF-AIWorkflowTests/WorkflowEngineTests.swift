@@ -45,6 +45,7 @@ final class Harness: Sendable {
     let worktrees: FakeWorktrees
     let engine: WorkflowEngine
     let recorder: UpdateRecorder
+    let log = FakeLogSink()
 
     static func settings(useWorktree: Bool = true, override: String? = nil, cap: Int = 2,
                          budget: TokenBudget = .default) -> EngineSettings {
@@ -53,7 +54,7 @@ final class Harness: Sendable {
     }
 
     init(settings: EngineSettings = Harness.settings(), tests: FakeTestRunner = FakeTestRunner(),
-         graph: FakeGraph = FakeGraph(), worktreeError: GitError? = nil) throws {
+         graph: FakeGraph = FakeGraph(), worktreeError: GitError? = nil, recording: Bool = true) throws {
         dir = try TestEnv.makeTempDir()
         project = dir.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -61,9 +62,10 @@ final class Harness: Sendable {
         self.graph = graph
         worktrees = FakeWorktrees(directory: dir, error: worktreeError)
         engine = WorkflowEngine(
-            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees),
+            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees, log: log),
             settings: settings)
-        recorder = UpdateRecorder(engine.updates)
+        // `updates` has one consumer: tests that attach a view model pass `recording: false`.
+        recorder = UpdateRecorder(recording ? engine.updates : AsyncStream { $0.finish() })
     }
 
     deinit { try? FileManager.default.removeItem(at: dir) }
@@ -84,6 +86,26 @@ final class Harness: Sendable {
 @Suite(.timeLimit(.minutes(3)))
 struct WorkflowEngineTests {
     private static let planSession = "22222222-2222-4222-8222-222222222222"
+
+    // MARK: - Activity log
+
+    @Test func activityAndTestSummaryReachTheLogSink() async throws {
+        let h = try Harness()
+        h.claude.activity(.plan, "Reading files", "Writing plan")
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.done))
+        let entries = h.log.all.filter { $0.id == id }
+        #expect(entries.filter { $0.stage == .plan }.map(\.text) == ["Reading files", "Writing plan"])
+        #expect(entries.contains { $0.stage == .test && $0.text.contains("passed") })
+    }
+
+    @Test func failureTextReachesTheLogSink() async throws {
+        let h = try Harness()
+        h.claude.script(.plan, .outcome(FakeClaudeRunner.error("kaboom")))
+        let id = await h.engine.submit(h.draft())
+        #expect(await h.recorder.wait(.failed))
+        #expect(h.log.all.contains { $0.id == id && $0.text.contains("kaboom") })
+    }
 
     // MARK: - Happy path
 

@@ -20,6 +20,7 @@ final class FakeClaudeRunner: ClaudeStageRunning {
         var calls: [StageRunRequest] = []
         var started: [WorkflowStage] = []
         var terminated: [WorkflowStage] = []
+        var activities: [WorkflowStage: [String]] = [:]
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -36,6 +37,11 @@ final class FakeClaudeRunner: ClaudeStageRunning {
 
     func script(_ stage: WorkflowStage, _ scripts: Script...) {
         state.withLock { $0.scripts[stage, default: []].append(contentsOf: scripts) }
+    }
+
+    /// Activity lines emitted before the outcome of every run of `stage`.
+    func activity(_ stage: WorkflowStage, _ lines: String...) {
+        state.withLock { $0.activities[stage] = lines }
     }
 
     var calls: [StageRunRequest] { state.withLock { $0.calls } }
@@ -68,6 +74,7 @@ final class FakeClaudeRunner: ClaudeStageRunning {
             return next
         }
         let (stream, continuation) = AsyncThrowingStream<StageRunEvent, Error>.makeStream()
+        for line in state.withLock({ $0.activities[request.stage] ?? [] }) { continuation.yield(.activity(line)) }
         continuation.onTermination = { [state] _ in state.withLock { $0.terminated.append(request.stage) } }
         switch script {
         case .outcome(let outcome):
@@ -189,4 +196,14 @@ final class FakeWorktrees: WorktreeProviding {
     }
 
     func remove(_ wt: Worktree, repo: URL, force: Bool) async throws(GitError) {}
+}
+
+/// Records every line the engine logs.
+final class FakeLogSink: TaskLogging {
+    struct Entry: Sendable, Equatable { let text: String; let stage: TaskState; let id: UUID }
+    private let entries = OSAllocatedUnfairLock(initialState: [Entry]())
+    func append(_ text: String, stage: TaskState, to id: UUID) async {
+        entries.withLock { $0.append(Entry(text: text, stage: stage, id: id)) }
+    }
+    var all: [Entry] { entries.withLock { $0 } }
 }
