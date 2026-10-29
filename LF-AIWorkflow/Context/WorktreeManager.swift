@@ -23,7 +23,7 @@ nonisolated struct WorktreeManager: WorktreeProviding {
     static func slug(for title: String, maxLength: Int = 40) -> String {
         var out = ""
         var pendingDash = false
-        for scalar in title.lowercased().unicodeScalars {
+        for scalar in transliterated(title).unicodeScalars {
             if scalar.isASCII, scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) {
                 if pendingDash, !out.isEmpty { out.append("-") }
                 pendingDash = false
@@ -35,6 +35,13 @@ nonisolated struct WorktreeManager: WorktreeProviding {
         var capped = String(out.prefix(max(1, maxLength)))
         while capped.hasSuffix("-") { capped.removeLast() }
         return capped.isEmpty ? fallbackSlug : capped
+    }
+
+    /// Latin transliteration with diacritics stripped ("café" -> "cafe", "日本語" -> "ri ben yu"), lowercased.
+    /// Complexity: O(n) time, O(n) space
+    private static func transliterated(_ title: String) -> String {
+        let latin = title.applyingTransform(.toLatin, reverse: false) ?? title
+        return (latin.applyingTransform(.stripDiacritics, reverse: false) ?? latin).lowercased()
     }
 
     /// `realpath(3)` form of `url` (git reports canonical paths; `URL.resolvingSymlinksInPath` maps `/private/var`

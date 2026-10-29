@@ -164,4 +164,53 @@ struct CommandRunnerTests {
         let fds = String(decoding: r.stdout, as: UTF8.self).split(separator: " ").compactMap { Int($0) }
         #expect(fds.allSatisfy { $0 <= 4 }, "unexpected descriptors \(fds)")
     }
+
+    // MARK: TD-030 / TD-116 / TD-107 (tech-debt pass S7)
+
+    private func openFDCount() -> Int {
+        (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? 0
+    }
+
+    @Test func terminatePathReleasesReadHandlesWhenStrayHoldsPipe() async throws {
+        // A child in another session keeps the write end open past the SIGTERM end (TD-030).
+        let script = "/usr/bin/perl -e 'use POSIX; if (fork == 0) { POSIX::setsid(); exec \"sleep\", \"4\" } sleep 30'"
+        // Other suites open fds concurrently, so retry: a real leak (>= 2 fds per run) fails every attempt.
+        var smallestGrowth = Int.max
+        for _ in 0..<3 where smallestGrowth >= 5 {
+            let before = openFDCount()
+            for _ in 0..<5 {
+                await #expect(throws: CommandError.timedOut(after: .milliseconds(150))) {
+                    _ = try await CommandRunner.run(inv("/bin/sh", ["-c", script]), timeout: .milliseconds(150))
+                }
+            }
+            smallestGrowth = min(smallestGrowth, openFDCount() - before)
+        }
+        #expect(smallestGrowth < 5, "leaked read fds: \(smallestGrowth)")
+    }
+
+    @Test func resumesWhenTerminationHandlerNeverFires() async throws {
+        // TD-116: the termination handler never runs; completion must fall back after reapLimit.
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["30"]
+        try child.run()
+        let run = RunningCommand(maxBytes: 1024, timeout: .seconds(1))
+        run.started(pid: child.processIdentifier)
+        run.cancel()
+        let start = ContinuousClock.now
+        let result = await run.completion()
+        child.waitUntilExit()
+        #expect(ContinuousClock.now - start < CommandRunner.killGrace + CommandRunner.reapLimit + .seconds(2))
+        if case .success(let r) = result { #expect(r.status != 0) } else { Issue.record("expected success result") }
+    }
+
+    @Test func sigtermIgnoringFloodingChildIsKilledAndReturns() async throws {
+        // TD-107 on the runner: trap TERM, flood stdout; SIGKILL after killGrace must end it.
+        let start = ContinuousClock.now
+        await #expect(throws: CommandError.timedOut(after: .milliseconds(200))) {
+            _ = try await CommandRunner.run(inv("/bin/sh", ["-c", "trap '' TERM; while :; do echo flood; done"]),
+                                            timeout: .milliseconds(200))
+        }
+        #expect(ContinuousClock.now - start < .seconds(8))
+    }
 }

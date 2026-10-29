@@ -40,10 +40,11 @@ uint64_t lf_text_hash(const void *p, size_t n) {
 
 /// Smallest power of two >= 2*items (min 16); 0 on overflow.
 /// Complexity: O(log n) time, O(1) space
-static size_t table_size(size_t items) {
-    if (items > ((size_t)1 << (sizeof(size_t) * 8 - 3))) return 0;
+static size_t table_size(size_t items, size_t elem) {
+    if (items > SIZE_MAX / 4 / (elem > 8 ? elem : 8)) return 0;
     size_t cap = 16;
     while (cap < items * 2) cap <<= 1;
+    if (cap > SIZE_MAX / elem) return 0;
     return cap;
 }
 
@@ -106,7 +107,7 @@ long lf_textclean_boilerplate(const lf_text_span *pages, size_t n, size_t min_pa
             const char *p = pages[i].ptr, *end = p ? p + pages[i].len : p;
             while (p && p < end) { size_t l; p = next_line(p, end, &l); lines++; }
         }
-        size_t cap = table_size(lines);
+        size_t cap = table_size(lines, sizeof(line_entry));
         if (!cap) { errno = ENOMEM; return -1; }
         tab = calloc(cap, sizeof(line_entry));
         if (!tab) { errno = ENOMEM; return -1; }
@@ -153,10 +154,10 @@ long lf_textclean_boilerplate(const lf_text_span *pages, size_t n, size_t min_pa
 /// Complexity: O(total bytes) expected time, O(n) space
 int lf_textclean_dedupe(const lf_text_span *pages, size_t n, long *dup_of) {
     if (n > 0 && (!pages || !dup_of)) { errno = EINVAL; return -1; }
+    size_t cap = n ? table_size(n, sizeof(long)) : 0;
+    if (n > 0 && (!cap || n > SIZE_MAX / sizeof(uint64_t))) { errno = ENOMEM; return -1; }
     if (!spans_valid(pages, n)) { errno = EINVAL; return -1; }
     if (n == 0) return 0;
-    size_t cap = table_size(n);
-    if (!cap) { errno = ENOMEM; return -1; }
     long *tab = malloc(cap * sizeof(long));
     uint64_t *hashes = malloc(n * sizeof(uint64_t));
     if (!tab || !hashes) { free(tab); free(hashes); errno = ENOMEM; return -1; }

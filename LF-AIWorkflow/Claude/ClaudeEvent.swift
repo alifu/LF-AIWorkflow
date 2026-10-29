@@ -3,7 +3,7 @@
 //  LF-AIWorkflow
 //
 
-nonisolated struct TokenUsage: Sendable, Equatable {
+nonisolated struct TokenUsage: Sendable, Equatable, Codable {
     let input: Int
     let output: Int
     let cacheRead: Int

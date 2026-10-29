@@ -218,6 +218,16 @@ struct HoverControllerTests {
         #expect(c.state == .expanded)
     }
 
+    @Test func schedulingACollapseCancelsThePriorOne() async {
+        let (c, clock) = make()
+        c.expand()
+        c.pointerExited()
+        await clock.waitForSleepers(1)
+        c.setFocusHold(false)                       // pointer is away, so a second collapse is scheduled
+        await c.settle()
+        #expect(clock.sleeperCount == 1)
+    }
+
     // MARK: keyboard / VoiceOver open
 
     @Test func expandOpensWithoutAPointerSoItCollapsesOnceFocusIsReleased() async {
@@ -330,5 +340,13 @@ struct HoverDismissalTests {
         #expect(c.state == .collapsed)
         c.showPeek(enabled: true)
         #expect(c.state == .peek)
+    }
+}
+
+/// Test aid: lets tasks that were just woken by the clock run to completion (main-actor FIFO).
+@MainActor
+extension HoverController {
+    func settle() async {
+        for _ in 0..<3 { await Task.yield() }
     }
 }

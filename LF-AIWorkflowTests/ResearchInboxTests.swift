@@ -71,6 +71,23 @@ struct ResearchInboxTests {
         #expect(try await ResearchInbox(folder: folder).items().isEmpty)
     }
 
+    @Test func traversalEntryNameIsIgnoredAndNeverTouched() async throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let dir = folder.appendingPathComponent("inbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let victim = folder.appendingPathComponent("victim.json")
+        let pageJSON = #"{"title":"x","url":"https://a.example/x","text":"t","headings":[],"links":[],"tables":[],"hasPasswordField":false}"#
+        try Data(pageJSON.utf8).write(to: victim)
+        let id = UUID()
+        let index = #"{"next":2,"entries":[{"id":"\#(id.uuidString)","key":"https://a.example/x","file":"../victim.json"}]}"#
+        try Data(index.utf8).write(to: dir.appendingPathComponent("index.json"))
+        let inbox = ResearchInbox(folder: folder)
+        #expect(try await inbox.items().isEmpty)
+        try await inbox.remove(id)
+        #expect(FileManager.default.fileExists(atPath: victim.path))
+    }
+
     @Test func corruptIndexIsRenamedAndRestartsEmpty() async throws {
         let folder = tempFolder()
         defer { try? FileManager.default.removeItem(at: folder) }

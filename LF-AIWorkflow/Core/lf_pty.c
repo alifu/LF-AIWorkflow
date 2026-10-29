@@ -311,7 +311,10 @@ static int wait_exit(lf_pty *p, int ms) {
     struct timespec ts = { ms / 1000, (long)(ms % 1000) * 1000000L };
     int n;
     do { n = kevent(kq, &ch, 1, &ev, 1, &ts); } while (n < 0 && errno == EINTR);
-    int exited = (n > 0) || (n < 0 && errno == ESRCH);
+    /* EV_ERROR events carry the errno in data; only ESRCH (pid already gone) means "exited". */
+    int exited = 0;
+    if (n > 0) exited = (ev.flags & EV_ERROR) ? ev.data == ESRCH : 1;
+    else if (n < 0 && errno == ESRCH) exited = 1;
     close(kq);
     if (exited) p->exit_seen = 1;
     return exited;
@@ -337,8 +340,8 @@ int lf_pty_terminate(lf_pty *p, int grace_ms) {
     if (p == NULL) { errno = EINVAL; return -1; }
     if (!p->reaped) {
         kill(-p->pid, SIGTERM);
-        if (!wait_exit(p, grace_ms < 0 ? 0 : grace_ms)) kill(-p->pid, SIGKILL);
-        else kill(-p->pid, SIGKILL);   /* sweep stragglers in the group; leader is already dead */
+        (void)wait_exit(p, grace_ms < 0 ? 0 : grace_ms);
+        kill(-p->pid, SIGKILL);   /* always sweep the group: stragglers, or a leader that is already dead */
     }
     int status = 0;
     if (lf_pty_wait(p, &status) < 0) return -1;

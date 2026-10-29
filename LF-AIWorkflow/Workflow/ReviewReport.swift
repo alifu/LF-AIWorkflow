@@ -87,11 +87,7 @@ nonisolated struct ReviewReport: Sendable, Equatable {
     /// Complexity: O(size) time, O(size) space
     func save(projectRoot: URL, slug: String) throws -> URL {
         guard Self.isSafeSlug(slug) else { throw SaveError.invalidSlug(slug) }
-        let dir = projectRoot.appendingPathComponent(".claude/reviews", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("\(slug).md")
-        try markdown(title: slug).write(to: url, atomically: true, encoding: .utf8)
-        return url
+        return try SafeProjectFile.write(markdown(title: slug), to: ".claude/reviews", name: "\(slug).md", root: projectRoot)
     }
 
     private static func isSafeSlug(_ slug: String) -> Bool {

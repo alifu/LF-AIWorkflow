@@ -154,15 +154,13 @@ final class HoverController {
         }
     }
 
-    /// Test aid: lets tasks that were just woken by the clock run to completion (main-actor FIFO).
-    func settle() async {
-        for _ in 0..<3 { await Task.yield() }
-    }
-
     // MARK: - Scheduling
 
+    /// Replaces any pending hover task, so at most one collapse is ever waiting.
+    /// Complexity: O(1) time, O(1) space
     private func scheduleCollapse() {
         guard state == .expanded, !isFocusHeld else { return }
+        cancelHover()
         hoverTask = schedule(after: collapseDelay) { controller in
             guard !controller.pointerInside, !controller.isFocusHeld, controller.state == .expanded else { return }
             controller.state = .collapsed

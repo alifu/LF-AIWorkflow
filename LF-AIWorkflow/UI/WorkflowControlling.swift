@@ -18,6 +18,9 @@ protocol WorkflowControlling: TaskDeciding {
     func submit(_ draft: TaskDraft) async
     func resume(_ id: UUID, raising tokens: Int) async
     func skipTests(_ id: UUID) async
+    func retry(_ id: UUID) async
+    func sendToFix(_ id: UUID, findings: [Finding]) async
+    func removeWorktree(_ id: UUID) async
     func clearDone()
     func clearError()
     func openWorktree(_ id: UUID)

@@ -14,18 +14,20 @@ extension WorkflowEngine {
     func prepare(_ id: UUID) async {
         guard let task = tasks[id] else { return }
         var worktree: Worktree?
+        var baseCommit: String?
         do {
             if effectiveSettings(for: id).useWorktree {
                 worktree = try await deps.worktrees.create(repo: task.projectRoot, slug: task.slug)
             } else {
-                baseCommits[id] = try await deps.git.headCommit(in: task.projectRoot)
+                baseCommit = try await deps.git.snapshotCommit(in: task.projectRoot)
             }
         } catch {
-            if isCurrent(id, .queued) { fail(id, .worktree(Self.describe(error))) }
+            if isCurrent(id, .queued) { await fail(id, .worktree(Self.describe(error))) }
             return
         }
         guard isCurrent(id, .queued) else { return }
-        apply(id, to: .plan) { $0.with(worktree: worktree) }
+        let next: TaskState = startAtCode.remove(id) != nil ? .code : .plan
+        apply(id, to: next) { $0.with(worktree: worktree).with(baseCommit: baseCommit) }
     }
 
     // MARK: - Plan
@@ -34,22 +36,20 @@ extension WorkflowEngine {
     func runPlan(_ id: UUID) async {
         guard let outcome = await runClaude(id, .plan), let task = tasks[id] else { return }
         guard let text = outcome.text, !text.isEmpty else {
-            fail(id, .claudeError("the plan stage returned no text")); return
+            await fail(id, .claudeError("the plan stage returned no text")); return
         }
         do {
             let file = try writePlan(text, for: task)
             apply(id, to: .awaitingApproval) { $0.with(planFile: file) }
         } catch {
-            fail(id, .claudeError("cannot write the plan file: \(error.localizedDescription)"))
+            await fail(id, .claudeError("cannot write the plan file: \(error.localizedDescription)"))
         }
     }
 
+    /// Complexity: O(plan bytes) time, O(plan bytes) space
     private func writePlan(_ text: String, for task: WorkflowTask) throws -> URL {
-        let dir = task.workingDirectory.appendingPathComponent(".claude/plans", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let file = dir.appendingPathComponent("\(task.slug).md")
-        try text.write(to: file, atomically: true, encoding: .utf8)
-        return file
+        try SafeProjectFile.write(text, to: ".claude/plans", name: "\(SafeProjectFile.stem(slug: task.slug, id: task.id)).md",
+                                  root: task.workingDirectory)
     }
 
     // MARK: - Code
@@ -61,34 +61,45 @@ extension WorkflowEngine {
         }
         guard isCurrent(id, .code) else { return }
         guard await runClaude(id, .code) != nil else { return }
-        await deps.graph.update(root: tasks[id]?.workingDirectory ?? URL(fileURLWithPath: "/"))
+        await refreshGraph(id)
         guard isCurrent(id, .code) else { return }
         apply(id, to: .test)
     }
 
+    /// Waits for `graphify update` at most `graphWait`; cancelling the driver ends the wait at once and cancels
+    /// the update. The root is the task's working directory (never `/`).
+    /// Complexity: O(1) time, O(1) space
+    private func refreshGraph(_ id: UUID) async {
+        guard let root = tasks[id]?.workingDirectory else { return }
+        let graph = deps.graph
+        await BoundedWait.run(limit: deps.graphWait) { await graph.update(root: root) }
+    }
+
     // MARK: - Test
 
+    /// Tests spend no tokens, so there is no budget check here: the next Claude stage (Fix or Review) parks an
+    /// over-budget task with that stage as its resume target (TD-026).
     /// Complexity: O(test output) time, O(errors) space
     func runTests(_ id: UUID) async {
-        guard withinBudget(id, estimate: 0), let task = tasks[id] else { return }
+        guard let task = tasks[id] else { return }
         guard let command = await resolveTestCommand(id) else {
-            if isCurrent(id, .test) { park(id, .noTestCommand) }
+            if isCurrent(id, .test) { await park(id, .noTestCommand) }
             return
         }
         if let changed = TestEntryGuard.modifiedEntryPoint(of: command, in: task.workingDirectory,
                                                            since: entryFingerprints[id]) {
-            park(id, .testEntryModified(changed)); return
+            await park(id, .testEntryModified(changed)); return
         }
         let outcome = await deps.tests.run(command, in: task.workingDirectory)
         guard isCurrent(id, .test) else { return }
         await log(Self.summary(of: outcome, command: command), id, .test)
         switch outcome {
         case .passed: apply(id, to: .review) { $0.with(lastErrors: nil) }
-        case .timedOut: park(id, .testTimedOut)
-        case .notFound: park(id, .other("the test tool was not found: \(command.display)"))
+        case .timedOut: await park(id, .testTimedOut)
+        case .notFound: await park(id, .other("the test tool was not found: \(command.display)"))
         case .failed(_, let errors, _):
             guard task.fixAttempts < effectiveSettings(for: id).fixLoopCap else {
-                fail(id, .fixLoopExhausted(attempts: task.fixAttempts)); return
+                await fail(id, .fixLoopExhausted(attempts: task.fixAttempts)); return
             }
             apply(id, to: .fix) { $0.with(lastErrors: errors) }
         }
@@ -99,7 +110,8 @@ extension WorkflowEngine {
     /// Complexity: O(prompt) time, O(prompt) space
     func runFix(_ id: UUID) async {
         guard await runClaude(id, .fix) != nil else { return }
-        await deps.graph.update(root: tasks[id]?.workingDirectory ?? URL(fileURLWithPath: "/"))
+        findingsForFix[id] = nil
+        await refreshGraph(id)
         guard isCurrent(id, .fix) else { return }
         apply(id, to: .test)
     }
@@ -111,10 +123,10 @@ extension WorkflowEngine {
         guard let outcome = await runClaude(id, .review), let task = tasks[id] else { return }
         let report = ReviewReport.parse(outcome.text ?? "")
         do {
-            let file = try report.save(projectRoot: task.workingDirectory, slug: task.slug)
+            let file = try report.save(projectRoot: task.workingDirectory, slug: SafeProjectFile.stem(slug: task.slug, id: task.id))
             apply(id, to: .done) { $0.with(reviewFile: file) }
         } catch {
-            fail(id, .claudeError("cannot save the review report: \(error.localizedDescription)"))
+            await fail(id, .claudeError("cannot save the review report: \(error.localizedDescription)"))
         }
     }
 
@@ -122,17 +134,34 @@ extension WorkflowEngine {
 
     /// Budget check, prompt, run. Returns the outcome only when the task is still in the stage's state;
     /// parks, fails or stays silent (cancelled) otherwise.
+    /// Complexity: O(prompt) time, O(prompt) space (plus the stream)
     func runClaude(_ id: UUID, _ stage: WorkflowStage) async -> StageRunOutcome? {
         let state = stage.taskState
         guard let task = tasks[id], let prompt = await buildPrompt(for: task, stage: stage), isCurrent(id, state),
-              withinBudget(id, estimate: prompt.estimatedTokens), let current = tasks[id] else { return nil }
+              await withinBudget(id, estimate: prompt.estimatedTokens),
+              await withinDayBudget(id, estimate: prompt.estimatedTokens), let current = tasks[id] else { return nil }
         let request = StageRunRequest(
-            stage: stage, config: effectiveConfig(for: current, stage: stage), prompt: prompt.text,
+            stage: stage, config: Self.grantingReads(effectiveConfig(for: current, stage: stage), prompt.readFiles),
+            prompt: prompt.text,
             sessionId: effectiveSettings(for: id).resumeSessionFor.contains(stage) ? current.sessionId : nil,
             addDirs: prompt.addDirs, workingDirectory: current.workingDirectory)
         return await stream(request, id: id, state: state)
     }
 
+    /// Adds one `Read(//abs/path)` rule per attachment file; characters that would break the rule list are skipped.
+    /// Complexity: O(f) time, O(f) space
+    nonisolated static func grantingReads(_ base: StageConfig, _ files: [URL]) -> StageConfig {
+        let rules = files.map(\.standardizedFileURL.path).filter { path in
+            path.hasPrefix("/") && !path.contains { ",()\n\r\0*?[]{}".contains($0) }
+        }.map { "Read(/\($0))" }
+        guard !rules.isEmpty else { return base }
+        return StageConfig(model: base.model, escalationModel: base.escalationModel, permissionMode: base.permissionMode,
+                           allowedTools: base.allowedTools + rules, disallowedTools: base.disallowedTools,
+                           maxTurns: base.maxTurns, builtinTools: base.builtinTools, isolated: base.isolated,
+                           appendSystemPrompt: base.appendSystemPrompt)
+    }
+
+    /// Complexity: O(events) time, O(1) space (events are not stored)
     private func stream(_ request: StageRunRequest, id: UUID, state: TaskState) async -> StageRunOutcome? {
         var lastUsage = TokenUsage.zero
         var finished: StageRunOutcome?
@@ -145,27 +174,28 @@ extension WorkflowEngine {
                 }
             }
         } catch {
-            record(usage: lastUsage, stage: request.stage, id: id)
+            await record(usage: lastUsage, stage: request.stage, id: id)
             if isCurrent(id, state) {
                 await log("failed: \(error)", id, state)
-                fail(id, error is ClaudeCommandError ? .invalidCommand("\(error)") : .claudeError("\(error)"))
+                await fail(id, error is ClaudeCommandError ? .invalidCommand("\(error)") : .claudeError("\(error)"))
             }
             return nil
         }
-        record(usage: finished?.usage ?? lastUsage, stage: request.stage, id: id, session: finished?.sessionId)
+        await record(usage: finished?.usage ?? lastUsage, stage: request.stage, id: id, session: finished?.sessionId)
         guard isCurrent(id, state) else { return nil }
         guard let outcome = finished else {
             await log("the \(request.stage.displayName) stage ended without a result", id, state)
-            fail(id, .claudeError("the \(request.stage.displayName) stage ended without a result")); return nil
+            await fail(id, .claudeError("the \(request.stage.displayName) stage ended without a result")); return nil
         }
         if outcome.isError {
             await log("failed: \(outcome.text ?? "claude reported an error")", id, state)
-            fail(id, .claudeError(outcome.text ?? "claude reported an error")); return nil
+            await fail(id, .claudeError(outcome.text ?? "claude reported an error")); return nil
         }
         return outcome
     }
 
     /// Writes one line to the optional activity sink.
+    /// Complexity: O(text) time, O(text) space
     func log(_ text: String, _ id: UUID, _ state: TaskState) async {
         await deps.log?.append(text, stage: state, to: id)
     }
@@ -180,8 +210,10 @@ extension WorkflowEngine {
         }
     }
 
-    private func record(usage: TokenUsage, stage: WorkflowStage, id: UUID, session: String? = nil) {
+    /// Complexity: O(1) time, O(1) space
+    private func record(usage: TokenUsage, stage: WorkflowStage, id: UUID, session: String? = nil) async {
         guard usage != .zero || session != nil else { return }
+        await recordDay(usage)
         update(id) { task in
             let added = task.adding(usage: usage, for: stage)
             return session.map { added.with(sessionId: $0) } ?? added
@@ -189,18 +221,19 @@ extension WorkflowEngine {
     }
 
     /// Pauses (awaitingInput) when spend plus the next prompt would pass the per-task limit.
-    func withinBudget(_ id: UUID, estimate: Int) -> Bool {
+    func withinBudget(_ id: UUID, estimate: Int) async -> Bool {
         guard let task = tasks[id] else { return false }
         switch (budgets[id] ?? effectiveSettings(for: task.id).budget).check(spent: task.totalUsage, nextEstimate: estimate) {
         case .proceed: return true
         case .pause(let spent, let limit):
-            park(id, .budgetExceeded(spent: spent, limit: limit))
+            await park(id, .budgetExceeded(spent: spent, limit: limit))
             return false
         }
     }
 
     /// Stage config; Fix escalates the model from the second attempt; the test command joins the allowed tools
     /// of Code and Fix only when `ClaudeCommandBuilder` accepts the resulting rule.
+    /// Complexity: O(t) time, O(t) space (t = allowed tools)
     func effectiveConfig(for task: WorkflowTask, stage: WorkflowStage) -> StageConfig {
         let base = effectiveSettings(for: task.id).policy.config(for: stage)
         var model = base.model
@@ -218,6 +251,7 @@ extension WorkflowEngine {
         return Self.config(base, model: model, tools: tools)
     }
 
+    /// Complexity: O(t) time, O(t) space (t = allowed tools)
     private static func config(_ base: StageConfig, model: String, tools: [String]) -> StageConfig {
         StageConfig(model: model, escalationModel: base.escalationModel, permissionMode: base.permissionMode,
                     allowedTools: tools, disallowedTools: base.disallowedTools, maxTurns: base.maxTurns,
@@ -225,18 +259,21 @@ extension WorkflowEngine {
     }
 
     /// The user reviewed the changed test entry point: it becomes the new baseline.
+    /// Complexity: O(entry file) time, O(1) space
     func acceptCurrentTestEntryPoint(_ id: UUID) {
         guard let command = testCommands[id], let task = tasks[id] else { return }
         entryFingerprints[id] = TestEntryGuard.fingerprint(of: command, in: task.workingDirectory)
     }
 
     /// Override first, then detection. Caches the command and its display on the task.
+    /// Complexity: O(entry file) time, O(1) space (detection may scan the root)
     func resolveTestCommand(_ id: UUID) async -> TestCommand? {
         if let cached = testCommands[id] { return cached }
         guard let task = tasks[id] else { return nil }
         let command: TestCommand?
         if let override = effectiveSettings(for: id).testCommandOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
-            command = TestCommand(executable: URL(fileURLWithPath: "/bin/zsh"), arguments: ["-c", override], display: override)
+            command = TestCommand(executable: URL(fileURLWithPath: "/bin/zsh"), arguments: ["-c", override], display: override,
+                                  entryPoint: TestEntryGuard.entryPoint(forOverride: override, in: task.workingDirectory))
         } else {
             command = await deps.tests.detect(in: task.workingDirectory)
         }
@@ -246,6 +283,7 @@ extension WorkflowEngine {
         return command
     }
 
+    /// Complexity: O(1) time, O(1) space
     static func describe(_ error: GitError) -> String {
         switch error {
         case .gitNotFound: "git was not found. Install it or set its path in Settings."
@@ -257,6 +295,7 @@ extension WorkflowEngine {
         }
     }
 
+    /// Complexity: O(1) time, O(1) space
     static func describe(_ error: Error) -> String {
         (error as? GitError).map { describe($0) } ?? "\(error)"
     }

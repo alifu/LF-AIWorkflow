@@ -46,4 +46,27 @@ struct HalftonePatternTests {
         #expect(image?.width == 80)
         #expect(image?.height == 60)
     }
+
+    @Test func cacheNeverHoldsMoreThanItsCapacity() {
+        let cache = HalftoneImageCache(capacity: 3)
+        for width in 100..<120 { _ = cache.image(for: key(CGFloat(width), 80)) }
+        #expect(cache.entryCount == 3)
+        #expect(cache.renderCount == 20)
+    }
+
+    @Test func cacheEvictsTheLeastRecentlyUsedImage() {
+        // Arrange
+        let cache = HalftoneImageCache(capacity: 2)
+        _ = cache.image(for: key(120, 80))  // A
+        _ = cache.image(for: key(121, 80))  // B
+        _ = cache.image(for: key(120, 80))  // touch A, so B is now the oldest
+        // Act
+        _ = cache.image(for: key(122, 80))  // C evicts B
+        _ = cache.image(for: key(120, 80))  // A is still cached
+        #expect(cache.renderCount == 3)
+        _ = cache.image(for: key(121, 80))  // B was evicted, so it renders again
+        // Assert
+        #expect(cache.renderCount == 4)
+        #expect(cache.entryCount == 2)
+    }
 }

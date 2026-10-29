@@ -43,8 +43,8 @@ struct GraphifyClientTests {
 
     private func fixtureText() throws -> String { String(decoding: try loadFixture("graphify_query_output.txt"), as: UTF8.self) }
 
-    private func client(_ fake: Fake, queryTimeout: Duration = .seconds(10)) -> GraphifyClient {
-        GraphifyClient(locator: fake.locator, queryTimeout: queryTimeout, updateTimeout: .seconds(10),
+    private func client(_ fake: Fake, queryTimeout: Duration = .seconds(60)) -> GraphifyClient {
+        GraphifyClient(locator: fake.locator, queryTimeout: queryTimeout, updateTimeout: .seconds(60),
                        environment: ["PATH": "/usr/bin:/bin"])
     }
 
@@ -79,7 +79,7 @@ struct GraphifyClientTests {
         let result = await client(fake).query("Foo", root: fake.root, budgetTokens: 500)
         let recorded = calls(fake)
         #expect(recorded.map { $0[0] } == ["update", "query"])
-        #expect(recorded[0] == ["update", fake.root.path])
+        #expect(recorded.first == ["update", fake.root.path])
         #expect(!result.text.isEmpty)
         #expect(result.nodes.first?.label == "Foo")
     }

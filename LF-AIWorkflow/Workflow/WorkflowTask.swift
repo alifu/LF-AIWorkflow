@@ -6,7 +6,7 @@
 import Foundation
 
 /// Immutable snapshot of one task. Every change returns a copy.
-nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable {
+nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable, Codable {
     let id: UUID
     let title: String
     let slug: String
@@ -27,6 +27,12 @@ nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable {
     let testCommandDisplay: String?
     let reviewFile: URL?
     let createdAt: Date
+    /// When the task reached a terminal state; set once by `TaskTransitions.move` (nil while it is alive).
+    private(set) var finishedAt: Date? = nil
+    /// The state the task was in when it failed; `retry` re-enters it (TD-043). Nil for older saved tasks.
+    private(set) var retryState: TaskState? = nil
+    /// HEAD snapshot taken for a non-worktree task, the review diff base; survives a relaunch. Nil for older saved tasks.
+    private(set) var baseCommit: String? = nil
 
     var workingDirectory: URL { worktree?.path ?? projectRoot }
 
@@ -34,6 +40,9 @@ nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable {
     /// Complexity: O(s) time, O(1) space (s = stages, at most 4)
     var totalUsage: TokenUsage { usageByStage.values.reduce(.zero, +) }
 
+    func with(finishedAt: Date?) -> WorkflowTask { copy(finishedAt: .some(finishedAt)) }
+    func with(retryState: TaskState?) -> WorkflowTask { copy(retryState: .some(retryState)) }
+    func with(baseCommit: String?) -> WorkflowTask { copy(baseCommit: .some(baseCommit)) }
     func with(state: TaskState) -> WorkflowTask { copy(state: state) }
     func with(worktree: Worktree?) -> WorkflowTask { copy(worktree: .some(worktree)) }
     func with(sessionId: String?) -> WorkflowTask { copy(sessionId: .some(sessionId)) }
@@ -58,7 +67,8 @@ nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable {
     private func copy(state: TaskState? = nil, resumeState: TaskState?? = nil, waitReason: WaitReason?? = nil,
                       failure: FailureReason?? = nil, worktree: Worktree?? = nil, sessionId: String?? = nil,
                       planFile: URL?? = nil, fixAttempts: Int? = nil, usageByStage: [WorkflowStage: TokenUsage]? = nil,
-                      lastErrors: String?? = nil, testCommandDisplay: String?? = nil, reviewFile: URL?? = nil) -> WorkflowTask {
+                      lastErrors: String?? = nil, testCommandDisplay: String?? = nil, reviewFile: URL?? = nil,
+                      finishedAt: Date?? = nil, retryState: TaskState?? = nil, baseCommit: String?? = nil) -> WorkflowTask {
         WorkflowTask(id: id, title: title, slug: slug, prompt: prompt, projectRoot: projectRoot,
                      documents: documents, skillDirs: skillDirs, state: state ?? self.state,
                      resumeState: resumeState ?? self.resumeState, waitReason: waitReason ?? self.waitReason,
@@ -66,6 +76,8 @@ nonisolated struct WorkflowTask: Sendable, Equatable, Identifiable {
                      sessionId: sessionId ?? self.sessionId, planFile: planFile ?? self.planFile,
                      fixAttempts: fixAttempts ?? self.fixAttempts, usageByStage: usageByStage ?? self.usageByStage,
                      lastErrors: lastErrors ?? self.lastErrors, testCommandDisplay: testCommandDisplay ?? self.testCommandDisplay,
-                     reviewFile: reviewFile ?? self.reviewFile, createdAt: createdAt)
+                     reviewFile: reviewFile ?? self.reviewFile, createdAt: createdAt,
+                     finishedAt: finishedAt ?? self.finishedAt,
+                     retryState: retryState ?? self.retryState, baseCommit: baseCommit ?? self.baseCommit)
     }
 }

@@ -97,7 +97,7 @@ actor ResearchInbox {
         var loaded = Index(next: 1, entries: [])
         if let data = try? Data(contentsOf: indexURL) {
             if let decoded = try? JSONDecoder().decode(Index.self, from: data) {
-                loaded = decoded
+                loaded = Index(next: decoded.next, entries: decoded.entries.filter { Self.isPlainFilename($0.file) })
             } else {
                 let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
                 try? fileManager.moveItem(at: indexURL, to: dir.appendingPathComponent("index.json.corrupt-\(stamp)"))
@@ -116,6 +116,12 @@ actor ResearchInbox {
         let data = try JSONEncoder().encode(value)
         try data.write(to: url, options: .atomic)
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    /// An index entry may only name a file directly inside the inbox folder.
+    /// Complexity: O(n) time, O(1) space (n = name length)
+    static func isPlainFilename(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\0")
     }
 
     private static func dto(_ p: CapturedPage) -> PageDTO {

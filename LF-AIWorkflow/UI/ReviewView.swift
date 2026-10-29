@@ -13,8 +13,9 @@ struct ReviewView: View {
     @Environment(\.colorScheme) private var scheme
     private var palette: ThemePalette { theme.palette(for: scheme) }
 
-    init(task: WorkflowTask, loader: any ReviewLoading = FileReviewLoader(), onDone: @escaping () -> Void) {
-        _model = State(initialValue: ReviewViewModel(task: task, loader: loader, opener: EditorOpener()))
+    init(task: WorkflowTask, loader: any ReviewLoading = FileReviewLoader(),
+         sendToFix: @escaping @MainActor ([Finding]) -> Void = { _ in }, onDone: @escaping () -> Void) {
+        _model = State(initialValue: ReviewViewModel(task: task, loader: loader, opener: EditorOpener(), sendToFix: sendToFix))
         self.onDone = onDone
     }
 
@@ -26,7 +27,7 @@ struct ReviewView: View {
                 Spacer()
                 Button("Open worktree") { model.openWorktree() }
                     .accessibilityHint("Shows the task folder in Finder")
-                Button("Send HIGH to Fix") {}
+                Button("Send HIGH to Fix") { model.sendHighToFix(); onDone() }
                     .disabled(!model.canSendHighToFix)
                     .help(ReviewViewModel.sendHighToFixNote)
                     .accessibilityHint(ReviewViewModel.sendHighToFixNote)

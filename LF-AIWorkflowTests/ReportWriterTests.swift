@@ -35,6 +35,15 @@ struct ReportWriterTests {
         #expect(r.unsourcedCount == 1)
     }
 
+    @Test func rawHTMLIsEscapedButHTTPAutolinkKept() {
+        let r = ReportWriter.parse("Hi <script>alert(1)</script> and <b>x</b> see <https://a.example.com/p> ok [1]", sourceCount: 1)
+        #expect(!r.answer.contains("<script>"))
+        #expect(!r.answer.contains("<b>"))
+        #expect(r.answer.contains("&lt;script>"))
+        #expect(r.answer.contains("<https://a.example.com/p>"))
+        #expect(ReportWriter.sanitize(r.answer) == r.answer)
+    }
+
     @Test func tableIsCapped() {
         var text = "| " + (0..<40).map { "c\($0)" }.joined(separator: " | ") + " |\n"
         text += "|" + String(repeating: "---|", count: 40) + "\n"

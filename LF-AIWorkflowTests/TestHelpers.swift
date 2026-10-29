@@ -24,9 +24,27 @@ enum TestEnv {
     @discardableResult
     static func writeExecutable(_ dir: URL, _ name: String, body: String) throws -> URL {
         let url = dir.appendingPathComponent(name)
-        try ("#!/bin/sh\n" + body + "\n").write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        try writeScript(url, contents: "#!/bin/sh\n" + body + "\n", mode: 0o755)
         return url
+    }
+
+    /// Writes a script so it can be exec'd immediately: O_CLOEXEC (a concurrent fork cannot inherit the write fd,
+    /// which would give ETXTBSY), fsync, fchmod, close, all before returning (TD-055).
+    /// Complexity: O(n) time, O(1) space in the script size.
+    static func writeScript(_ url: URL, contents: String, mode: mode_t = 0o755) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        var failed = false
+        let bytes = Array(contents.utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let n = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress! + offset, $0.count - offset) }
+            if n <= 0 { failed = true; break }
+            offset += n
+        }
+        if !failed { failed = fsync(fd) != 0 || fchmod(fd, mode) != 0 }
+        let closeFailed = close(fd) != 0
+        if failed || closeFailed { throw CocoaError(.fileWriteUnknown) }
     }
 
     static func write(_ dir: URL, _ relative: String, _ text: String) throws {

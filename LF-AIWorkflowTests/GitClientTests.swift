@@ -21,6 +21,26 @@ struct GitClientTests {
         #expect(head.allSatisfy { $0.isHexDigit })
     }
 
+    @Test func snapshotCommitExcludesPreexistingDirtyTrackedWork() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try TestEnv.write(repo, "a.swift", "let a = 99\n")
+        let snapshot = try await client().snapshotCommit(in: repo)
+        #expect(snapshot.count == 40)
+        try TestEnv.write(repo, "a.swift", "let a = 100\n")
+        let diff = try await client().reviewDiff(in: repo, base: snapshot, markNewFiles: false)
+        #expect(diff.contains("+let a = 100"))
+        #expect(!diff.contains("+let a = 99"))
+        #expect(diff.contains("-let a = 99"))
+    }
+
+    @Test func snapshotCommitOfCleanTreeIsHead() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let head = try await client().headCommit(in: repo)
+        #expect(try await client().snapshotCommit(in: repo) == head)
+    }
+
     @Test func isRepositoryDistinguishesDirs() async throws {
         let repo = try await TestEnv.makeRepo()
         let plain = try TestEnv.makeTempDir()
@@ -112,7 +132,7 @@ struct GitClientTests {
     }
 
     @Test func reviewExcludesListIsGlobPathspecs() {
-        #expect(GitClient.reviewExcludes.count == 13)
+        #expect(GitClient.reviewExcludes.count == 14)
         #expect(GitClient.reviewExcludes.allSatisfy { $0.hasPrefix(":(exclude,glob)") })
         #expect(GitClient.reviewExcludes.contains(":(exclude,glob)graphify-out/**"))
     }

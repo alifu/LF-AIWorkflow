@@ -89,6 +89,7 @@ actor TestRunner: TestRunning {
         return tool(words)
     }
 
+    /// Complexity: O(e) time, O(e) space (e = entries in `root`, via `detect(in:fileManager:)`)
     func detect(in root: URL) async -> TestCommand? {
         return Self.detect(in: root)
     }
@@ -132,11 +133,14 @@ actor TestRunner: TestRunning {
     /// Complexity: O(n) time in output bytes, O(maxLogBytes) space
     func run(_ cmd: TestCommand, in dir: URL) async -> TestOutcome {
         guard FileManager.default.isExecutableFile(atPath: cmd.executable.path) else { return .notFound }
+        if cmd.executable == Self.envPath, let tool = cmd.arguments.first, !Self.isOnPath(tool, environment["PATH"]) {
+            return .notFound
+        }
         let log: RingBuffer
         let process: PTYProcess
         do {
             log = try RingBuffer(capacity: max(1, maxLogBytes))
-            process = try PTYProcess.spawn(invocation(cmd, in: dir))
+            process = try await PTYProcess.spawnOffPool(invocation(cmd, in: dir))
         } catch {
             return Self.spawnFailure(error)
         }
@@ -154,11 +158,18 @@ actor TestRunner: TestRunning {
         timer.cancel()
         if timedOut.withLock({ $0 }) { return .timedOut }
         if status == 0 { return .passed }
-        // `/usr/bin/env` reports a missing (127) or non-executable (126) tool this way: not a test failure.
-        if cmd.executable == Self.envPath, status == 126 || status == 127 { return .notFound }
         let scan = ErrorScanner.extract(log.snapshot(), options: .init(maxOutputBytes: max(1, errorMaxTokens * 4)))
         return .failed(exitStatus: status, errors: scan.text.replacingOccurrences(of: "\r", with: ""),
                        truncated: scan.truncated || log.dropped > 0)
+    }
+
+    /// TD-033: the tool is resolved up front, so a 126/127 from the test tool itself stays a failure.
+    /// Complexity: O(p) time, O(1) space (p = PATH entries)
+    private static func isOnPath(_ tool: String, _ path: String?) -> Bool {
+        if tool.contains("/") { return FileManager.default.isExecutableFile(atPath: tool) }
+        return (path ?? "").split(separator: ":").contains {
+            FileManager.default.isExecutableFile(atPath: String($0) + "/" + tool)
+        }
     }
 
     private func invocation(_ cmd: TestCommand, in dir: URL) -> ProcessInvocation {

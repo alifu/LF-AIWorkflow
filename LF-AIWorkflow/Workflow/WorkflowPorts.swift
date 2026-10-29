@@ -84,6 +84,8 @@ nonisolated enum GitError: Error, Sendable, Equatable {
 
 nonisolated protocol GitWorking: Sendable {
     func headCommit(in: URL) async throws(GitError) -> String
+    /// A commit-ish capturing the current tracked working tree (HEAD when clean), used as the review base.
+    func snapshotCommit(in: URL) async throws(GitError) -> String
     func reviewDiff(in: URL, base: String, markNewFiles: Bool) async throws(GitError) -> String
 }
 

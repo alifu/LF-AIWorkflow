@@ -13,8 +13,12 @@ struct PTYTests {
 
     /// Spawns a command, keeping argv/envp storage alive for the call.
     private func spawn(_ argv: [String], env: [String]? = nil, cwd: String? = nil, stdinPipe: Bool = false) -> OpaquePointer? {
-        let a = CStringArray(argv)
-        let e = env.map { CStringArray($0) }
+        guard let a = CStringArray(argv) else { return nil }
+        var e: CStringArray?
+        if let env {
+            guard let made = CStringArray(env) else { return nil }
+            e = made
+        }
         return withExtendedLifetime((a, e)) {
             var o = lf_pty_options(argv: a.pointer, envp: e?.pointer, cwd: nil, cols: 0, rows: 0, stdin_pipe: stdinPipe ? 1 : 0)
             if let cwd {
@@ -84,7 +88,7 @@ struct PTYTests {
         #expect(errno == ENOENT)
     }
 
-    @Test func invalidOptionsFailWithEINVAL() {
+    @Test func invalidOptionsFailWithEINVAL() throws {
         errno = 0
         #expect(lf_pty_spawn(nil) == nil)
         #expect(errno == EINVAL)
@@ -92,7 +96,7 @@ struct PTYTests {
         errno = 0
         #expect(lf_pty_spawn(&o) == nil)
         #expect(errno == EINVAL)
-        let empty = CStringArray([])
+        let empty = try #require(CStringArray([]))
         o.argv = empty.pointer
         errno = 0
         #expect(lf_pty_spawn(&o) == nil)
@@ -300,8 +304,8 @@ struct PTYTests {
 }
 
 struct CStringArrayTests {
-    @Test func holdsNullTerminatedCopies() {
-        let arr = CStringArray(["/bin/echo", "a b", ""])
+    @Test func holdsNullTerminatedCopies() throws {
+        let arr = try #require(CStringArray(["/bin/echo", "a b", ""]))
         #expect(arr.count == 3)
         #expect(String(cString: arr.pointer[0]!) == "/bin/echo")
         #expect(String(cString: arr.pointer[1]!) == "a b")

@@ -19,7 +19,7 @@ struct ClaudeEventDecodingTests {
             index = end
         }
         lines += try framer.finish()
-        return lines.compactMap(ClaudeEventDecoder.decode)
+        return lines.flatMap(ClaudeEventDecoder.decode)
     }
 
     private func fixture(_ name: String) throws -> [ClaudeEvent] { try decodeAll(loadFixture(name)) }
@@ -36,9 +36,17 @@ struct ClaudeEventDecodingTests {
 
     // MARK: hand-written
 
-    @Test func blankLinesDecodeToNil() {
-        #expect(ClaudeEventDecoder.decode(Data()) == nil)
-        #expect(ClaudeEventDecoder.decode(Data("  \r".utf8)) == nil)
+    @Test func blankLinesDecodeToNoEvents() {
+        #expect(ClaudeEventDecoder.decode(Data()).isEmpty)
+        #expect(ClaudeEventDecoder.decode(Data("  \r".utf8)).isEmpty)
+    }
+
+    @Test func everyToolResultBlockOnOneUserLineYieldsItsOwnEvent() {
+        let line = Data("{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"},{\"type\":\"tool_result\",\"tool_use_id\":\"a\",\"is_error\":false},{\"type\":\"tool_result\",\"tool_use_id\":\"b\",\"is_error\":true}]}}".utf8)
+        #expect(ClaudeEventDecoder.decode(line) == [
+            .toolResult(ToolResult(toolUseId: "a", isError: false)),
+            .toolResult(ToolResult(toolUseId: "b", isError: true)),
+        ])
     }
 
     @Test func edgeCasesDecodeWithoutCrash() throws {
@@ -60,27 +68,27 @@ struct ClaudeEventDecodingTests {
     }
 
     @Test func carriageReturnIsTolerated() {
-        let event = ClaudeEventDecoder.decode(Data("{\"type\":\"rate_limit_event\"}\r".utf8))
-        #expect(event == .unknown(type: "rate_limit_event"))
+        let events = ClaudeEventDecoder.decode(Data("{\"type\":\"rate_limit_event\"}\r".utf8))
+        #expect(events == [.unknown(type: "rate_limit_event")])
     }
 
     @Test func oneMegabyteTextDecodes() throws {
         let big = String(repeating: "x", count: 1_000_000)
         let line = Data("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"\(big)\"}]}}".utf8)
-        guard case .assistant(let m)? = ClaudeEventDecoder.decode(line) else { Issue.record("expected assistant"); return }
+        guard case .assistant(let m)? = ClaudeEventDecoder.decode(line).first else { Issue.record("expected assistant"); return }
         #expect(m.texts.first?.count == 1_000_000)
     }
 
     @Test func unparsedTextIsCapped() {
         let long = String(repeating: "e", count: 10_000)
-        guard case .unparsed(let text)? = ClaudeEventDecoder.decode(Data(long.utf8)) else { Issue.record("expected unparsed"); return }
+        guard case .unparsed(let text)? = ClaudeEventDecoder.decode(Data(long.utf8)).first else { Issue.record("expected unparsed"); return }
         #expect(text.count == 2048)
     }
 
     @Test func toolInputSummaryIsCapped() {
         let long = String(repeating: "p", count: 5000)
         let line = Data("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Read\",\"input\":{\"file_path\":\"\(long)\"}}]}}".utf8)
-        guard case .assistant(let m)? = ClaudeEventDecoder.decode(line) else { Issue.record("expected assistant"); return }
+        guard case .assistant(let m)? = ClaudeEventDecoder.decode(line).first else { Issue.record("expected assistant"); return }
         #expect(m.toolUses.first?.inputSummary.count == 200)
     }
 

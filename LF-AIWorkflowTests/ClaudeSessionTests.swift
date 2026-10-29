@@ -19,7 +19,7 @@ struct ClaudeSessionTests {
     private func decoded(_ name: String) throws -> [ClaudeEvent] {
         let framer = try NDJSONFramer()
         let lines = try framer.feed(loadFixture(name)) + framer.finish()
-        return lines.compactMap(ClaudeEventDecoder.decode)
+        return lines.flatMap(ClaudeEventDecoder.decode)
     }
 
     private func collect(_ session: ClaudeSession) async -> [ClaudeEvent] {

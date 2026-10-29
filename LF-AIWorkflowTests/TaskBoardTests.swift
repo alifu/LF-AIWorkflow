@@ -108,6 +108,39 @@ import Foundation
         #expect(done?.kind == .done && done?.text == "Add dark mode: done")
     }
 
+    @Test func donePeekWaitsForTheReviewCountWhenTheTaskHasAReview() {
+        var board = TaskBoard()
+        let id = UUID()
+        let review = URL(fileURLWithPath: "/tmp/MyApp/.claude/reviews/dark-mode.md")
+        let finished = PreviewFixtures.task("Add dark mode", state: .done, id: id, reviewFile: review)
+        #expect(board.apply(finished, now: at(3)) == nil)
+        #expect(board.awaitsReview(id))
+        let peek = board.reviewLoaded(for: id, findings: 3)
+        #expect(peek?.kind == .done && peek?.text == "Add dark mode: done, 3 findings" && peek?.taskID == id)
+        #expect(!board.awaitsReview(id))
+    }
+
+    @Test func donePeekUsesSingularForOneFinding() {
+        var board = TaskBoard()
+        let id = UUID()
+        let review = URL(fileURLWithPath: "/tmp/MyApp/.claude/reviews/x.md")
+        _ = board.apply(PreviewFixtures.task("X", state: .done, id: id, reviewFile: review), now: at(3))
+        #expect(board.reviewLoaded(for: id, findings: 1)?.text == "X: done, 1 finding")
+    }
+
+    @Test func donePeekFallsBackToPlainDoneWhenTheReviewCannotBeRead() {
+        var board = TaskBoard()
+        let id = UUID()
+        let review = URL(fileURLWithPath: "/tmp/MyApp/.claude/reviews/x.md")
+        _ = board.apply(PreviewFixtures.task("X", state: .done, id: id, reviewFile: review), now: at(3))
+        #expect(board.reviewLoaded(for: id, findings: nil)?.text == "X: done")
+    }
+
+    @Test func reviewLoadedWithoutAPendingDoneIsIgnored() {
+        var board = TaskBoard()
+        #expect(board.reviewLoaded(for: UUID(), findings: 2) == nil)
+    }
+
     @Test func peekFailedAndNeedsInput() {
         var board = TaskBoard()
         let failed = board.apply(PreviewFixtures.task("X", state: .failed, failure: .claudeError("boom")), now: at(1))

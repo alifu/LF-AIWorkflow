@@ -19,17 +19,17 @@ struct StagePolicyTests {
     @Test func tableMatchesPlan() {
         let plan = policy.config(for: .plan)
         #expect(plan.model == "opus" && plan.permissionMode == .plan && plan.maxTurns == 8)
-        #expect(plan.allowedTools == ["Read", "Grep", "Glob", "Bash(graphify:*)"])
+        #expect(plan.allowedTools == ["Read(./**)", "Grep", "Glob", "Bash(graphify query:*)"])
         let code = policy.config(for: .code)
         #expect(code.model == "sonnet" && code.permissionMode == .acceptEdits && code.maxTurns == 20)
-        #expect(code.allowedTools == ["Read", "Write", "Edit", "Grep", "Glob", "Bash(graphify:*)", "Bash(xcodebuild test)"])
+        #expect(code.allowedTools == ["Read(./**)", "Write", "Edit", "Grep", "Glob", "Bash(graphify query:*)", "Bash(xcodebuild test)"])
         let fix = policy.config(for: .fix)
         #expect(fix.model == "haiku" && fix.escalationModel == "sonnet")
         #expect(fix.permissionMode == .acceptEdits && fix.maxTurns == 10)
         #expect(fix.allowedTools == code.allowedTools)
         let review = policy.config(for: .review)
         #expect(review.model == "opus" && review.permissionMode == .default && review.maxTurns == 8)
-        #expect(review.allowedTools == ["Read", "Grep", "Glob", "Bash(git diff:*)"])
+        #expect(review.allowedTools == ["Read(./**)", "Grep", "Glob", "Bash(git diff:*)"])
         #expect(code.escalationModel == nil)
     }
 
@@ -41,24 +41,48 @@ struct StagePolicyTests {
         }
     }
 
+    @Test(arguments: WorkflowStage.allCases)
+    func readIsScopedToTheWorkingFolder(stage: WorkflowStage) {
+        let allowed = policy.config(for: stage).allowedTools
+        #expect(!allowed.contains("Read"), "bare Read lets a stage read ~/.ssh")
+        #expect(allowed.contains("Read(./**)"))
+    }
+
+    @Test(arguments: WorkflowStage.allCases)
+    func commonSidestepVariantsAreDenied(stage: WorkflowStage) {
+        let denied = Set(policy.config(for: stage).disallowedTools)
+        for rule in ["Bash(rm -fr:*)", "Bash(rm -r -f:*)", "Bash(git -C * push:*)", "Bash(git -c * push:*)",
+                     "Read(**/.env*)", "Read(//**/.env*)"] {
+            #expect(denied.contains(rule), "\(rule) missing")
+        }
+    }
+
     @Test func reviewUsesExplicitBuiltinToolList() {
         #expect(policy.config(for: .review).builtinTools == ["Read", "Grep", "Glob", "Bash"])
     }
 
     @Test func reviewNeverAllowsWriteToolsEvenAfterReplacing() {
         let sneaky = StageConfig(model: "opus", escalationModel: nil, permissionMode: .acceptEdits,
-                                 allowedTools: ["Read", "Write", "Edit", "NotebookEdit"], disallowedTools: [], maxTurns: 5)
+                                 allowedTools: ["Read(./**)", "Write", "Edit", "NotebookEdit"], disallowedTools: [], maxTurns: 5)
         let config = policy.replacing(.review, with: sneaky).config(for: .review)
         #expect(Set(config.allowedTools).isDisjoint(with: StagePolicy.writeTools))
-        #expect(config.allowedTools == ["Read"])
+        #expect(config.allowedTools == ["Read(./**)"])
         #expect(Set(StagePolicy.writeTools).isSubset(of: Set(config.disallowedTools)))
         #expect(Set(StagePolicy.alwaysDenied).isSubset(of: Set(config.disallowedTools)))
+    }
+
+    @Test func graphifyAccessIsQueryOnly() {
+        for stage in [WorkflowStage.plan, .code, .fix] {
+            let allowed = policy.config(for: stage).allowedTools
+            #expect(allowed.contains("Bash(graphify query:*)"))
+            #expect(!allowed.contains("Bash(graphify:*)"))
+        }
     }
 
     @Test func nilOrEmptyTestCommandAddsNoBashEntry() {
         for command in [nil, ""] as [String?] {
             let code = StagePolicy.defaults(testCommand: command).config(for: .code)
-            #expect(code.allowedTools == ["Read", "Write", "Edit", "Grep", "Glob", "Bash(graphify:*)"])
+            #expect(code.allowedTools == ["Read(./**)", "Write", "Edit", "Grep", "Glob", "Bash(graphify query:*)"])
         }
     }
 

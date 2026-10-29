@@ -90,4 +90,36 @@ struct ProjectRulesTests {
         let r = ProjectRules.scan(root: root, rulesMaxTokens: 800)
         #expect(r.warnings.contains(.unreadable("CLAUDE.md")))
     }
+
+    @Test func symlinkedRulesFileOutsideProjectIsRejected() throws {
+        let root = try makeRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let outside = try makeRoot(); defer { try? FileManager.default.removeItem(at: outside) }
+        let target = outside.appendingPathComponent("CLAUDE.md")
+        try "secret outside".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("CLAUDE.md"), withDestinationURL: target)
+        let r = ProjectRules.scan(root: root, rulesMaxTokens: 800)
+        #expect(r.rulesFiles.isEmpty)
+        #expect(r.warnings == [.missingRules])
+    }
+
+    @Test func symlinkedChecklistOutsideProjectIsRejected() throws {
+        let root = try makeRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let outside = try makeRoot(); defer { try? FileManager.default.removeItem(at: outside) }
+        let target = outside.appendingPathComponent("checklist-leak.md")
+        try "leak".write(to: target, atomically: true, encoding: .utf8)
+        let dir = root.appendingPathComponent("review")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: dir.appendingPathComponent("checklist-leak.md"), withDestinationURL: target)
+        let r = ProjectRules.scan(root: root, rulesMaxTokens: 800)
+        #expect(r.checklists.isEmpty)
+    }
+
+    @Test func symlinkedRulesFileInsideProjectIsAccepted() throws {
+        let root = try makeRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("docs-CLAUDE.md")
+        try "inside".write(to: real, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("CLAUDE.md"), withDestinationURL: real)
+        let r = ProjectRules.scan(root: root, rulesMaxTokens: 800)
+        #expect(r.rulesFiles.map(\.url.lastPathComponent) == ["CLAUDE.md"])
+    }
 }

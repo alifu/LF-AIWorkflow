@@ -54,7 +54,9 @@ final class Harness: Sendable {
     }
 
     init(settings: EngineSettings = Harness.settings(), tests: FakeTestRunner = FakeTestRunner(),
-         graph: FakeGraph = FakeGraph(), worktreeError: GitError? = nil, recording: Bool = true) throws {
+         graph: FakeGraph = FakeGraph(), worktreeError: GitError? = nil, recording: Bool = true,
+         graphWait: Duration = .seconds(60), ledger: DayTokenLedger? = nil,
+         store: (any TaskPersisting)? = nil) throws {
         dir = try TestEnv.makeTempDir()
         project = dir.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -62,7 +64,7 @@ final class Harness: Sendable {
         self.graph = graph
         worktrees = FakeWorktrees(directory: dir, error: worktreeError)
         engine = WorkflowEngine(
-            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees, log: log),
+            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees, log: log, graphWait: graphWait, ledger: ledger, store: store),
             settings: settings)
         // `updates` has one consumer: tests that attach a view model pass `recording: false`.
         recorder = UpdateRecorder(recording ? engine.updates : AsyncStream { $0.finish() })
@@ -128,7 +130,7 @@ struct WorkflowEngineTests {
         let task = try #require(await h.engine.task(id))
         let planFile = try #require(task.planFile)
         #expect(planFile.path.hasPrefix(task.workingDirectory.path))
-        #expect(planFile.path.hasSuffix(".claude/plans/add-login.md"))
+        #expect(planFile.path.contains(".claude/plans/add-login-"))
         #expect(try String(contentsOf: planFile, encoding: .utf8) == "THE PLAN TEXT")
     }
 
@@ -166,8 +168,29 @@ struct WorkflowEngineTests {
         #expect(task.worktree == nil)
         #expect(h.worktrees.created.isEmpty)
         #expect(Set(h.claude.calls.map(\.workingDirectory)) == [h.project])
-        #expect(h.git.diffBases == ["abc123"])
+        #expect(h.git.diffBases == ["snap456"])
         #expect(h.git.markFlags == [false])
+    }
+
+    @Test func slowGraphUpdateTimesOutAndUsesProjectRootNeverSlash() async throws {
+        let h = try Harness(settings: Harness.settings(useWorktree: false), graphWait: .milliseconds(100))
+        h.graph.slowUpdate(.seconds(30))
+        _ = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.done))
+        #expect(!h.graph.updateRoots.isEmpty)
+        #expect(Set(h.graph.updateRoots) == [h.project])
+    }
+
+    @Test func cancellingDuringGraphUpdateReturnsPromptly() async throws {
+        let h = try Harness(graphWait: .seconds(60))
+        h.graph.slowUpdate(.seconds(60))
+        let id = try await h.runToCodeStart()
+        for _ in 0..<500 where h.graph.updateCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(h.graph.updateCount > 0)
+        let start = ContinuousClock.now
+        await h.engine.cancel(id)
+        #expect(await h.recorder.wait(.cancelled))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     @Test func worktreeReviewMarksNewFiles() async throws {
@@ -184,7 +207,7 @@ struct WorkflowEngineTests {
         #expect(await h.recorder.wait(.done))
         let task = try #require(await h.engine.task(id))
         let file = try #require(task.reviewFile)
-        #expect(file.path.hasSuffix(".claude/reviews/add-login.md"))
+        #expect(file.path.contains(".claude/reviews/add-login-"))
         #expect(try String(contentsOf: file, encoding: .utf8).contains("leaks"))
     }
 
@@ -425,7 +448,7 @@ struct WorkflowEngineTests {
 
     // MARK: - Waiting states
 
-    @Test func budgetExceededAfterCodeParksThenResumesWithTest() async throws {
+    @Test func overBudgetAfterCodeStillRunsTestsThenParksBeforeTheNextClaudeStage() async throws {
         let small = TokenBudget(perTaskMaxTokens: 400, inlineMaxTokens: 2_000, errorMaxTokens: 1_500, rulesMaxTokens: 800,
                                 promptMaxTokens: TokenBudget.default.promptMaxTokens)
         let h = try Harness(settings: Harness.settings(budget: small))
@@ -437,12 +460,12 @@ struct WorkflowEngineTests {
         guard case .budgetExceeded(let spent, let limit) = parked.waitReason else { Issue.record("expected budget wait"); return }
         #expect(spent == 550)
         #expect(limit == 400)
-        #expect(parked.resumeState == .test)
-        #expect(h.tests.runCount == 0)
+        #expect(parked.resumeState == .review)
+        #expect(h.tests.runCount == 1)
+        #expect(h.recorder.states.suffix(3) == [.test, .review, .awaitingInput])
 
-        try await h.engine.resume(id, raisingBudgetBy: 1_000)
+        try await h.engine.resume(id, raisingBudgetBy: 10_000)
         #expect(await h.recorder.wait(.done))
-        #expect(h.recorder.states.suffix(4) == [.awaitingInput, .test, .review, .done])
     }
 
     @Test func resumeWithoutRaisingParksAgainUntilBudgetGrows() async throws {
@@ -453,13 +476,36 @@ struct WorkflowEngineTests {
         let id = try await h.runToCodeStart()
         #expect(await h.recorder.wait(.awaitingInput))
         let parked = try #require(await h.engine.task(id))
-        #expect(parked.resumeState == .test)
+        #expect(parked.resumeState == .review)
         try await h.engine.resume(id)
         #expect(await h.recorder.wait(.awaitingInput, count: 2))
         let second = try #require(await h.engine.task(id))
-        #expect(second.resumeState == .test)
+        #expect(second.resumeState == .review)
         try await h.engine.resume(id, raisingBudgetBy: 10_000)
         #expect(await h.recorder.wait(.done))
+    }
+
+    @Test func retryRestartsAFailedStageAndFinishes() async throws {
+        let h = try Harness()
+        h.claude.script(.code, .outcome(FakeClaudeRunner.error("max turns reached")))
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.failed))
+        let failed = try #require(await h.engine.task(id))
+        #expect(failed.retryState == .code)
+        h.claude.script(.code, .outcome(FakeClaudeRunner.ok("c", tokens: 10)))
+        try await h.engine.retry(id)
+        #expect(await h.recorder.wait(.done))
+        let done = try #require(await h.engine.task(id))
+        #expect(done.failure == nil)
+    }
+
+    @Test func retryIsRefusedForTasksThatDidNotFail() async throws {
+        let h = try Harness()
+        let id = await h.engine.submit(h.draft())
+        #expect(await h.recorder.wait(.awaitingApproval))
+        await #expect(throws: WorkflowError.self) { try await h.engine.retry(id) }
+        await h.engine.cancel(id)
+        await #expect(throws: WorkflowError.self) { try await h.engine.retry(id) }
     }
 
     @Test func missingTestCommandParksAndSkipTestsGoesToReview() async throws {
@@ -547,5 +593,33 @@ struct WorkflowEngineTests {
         #expect(!h.recorder.states.contains(.fix))
         #expect(h.claude.calls(for: .fix).isEmpty)
         await h.engine.cancel(id)
+    }
+
+    // MARK: - Activity log lines (TD-037)
+
+    @Test func fixLoopExhaustionIsLogged() async throws {
+        let h = try Harness()
+        let failure = TestOutcome.failed(exitStatus: 1, errors: "a.swift:3: error: boom", truncated: false)
+        h.tests.script(.outcome(failure), .outcome(failure), .outcome(failure))
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.failed))
+        #expect(h.log.all.contains { $0.id == id && $0.text.contains("fix attempts") })
+    }
+
+    @Test func parkIsLogged() async throws {
+        let h = try Harness(tests: FakeTestRunner(command: nil))
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.awaitingInput))
+        #expect(h.log.all.contains { $0.id == id && $0.text.contains("No test command") })
+    }
+
+    @Test func cancelIsLoggedOnce() async throws {
+        let h = try Harness()
+        h.claude.script(.code, .hang)
+        let id = try await h.runToCodeStart()
+        #expect(await h.claude.waitUntilStarted(.code))
+        await h.engine.cancel(id)
+        await h.engine.cancel(id)
+        #expect(h.log.all.filter { $0.id == id && $0.text == "Cancelled" }.count == 1)
     }
 }

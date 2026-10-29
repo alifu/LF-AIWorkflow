@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Darwin
 
 nonisolated struct ResearchFolder: Sendable, Equatable {
     let url: URL
@@ -37,10 +38,7 @@ actor ResearchStore {
         while true {
             let name = n == 1 ? base : "\(base)-\(n)"
             let url = root.appendingPathComponent(name, isDirectory: true)
-            if !exists(url) {
-                try makeDirectory(url)
-                return ResearchFolder(url: url)
-            }
+            if try makeExclusiveDirectory(url) { return ResearchFolder(url: url) }
             n += 1
         }
     }
@@ -86,8 +84,13 @@ actor ResearchStore {
         (try? fileManager.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType == .typeSymbolicLink
     }
 
-    private func exists(_ url: URL) -> Bool {
-        (try? fileManager.attributesOfItem(atPath: url.path)) != nil
+    /// Atomic create: mkdir fails with EEXIST for any existing entry (file, dir or symlink) without following it.
+    /// Returns false when the name is taken.
+    /// Complexity: O(1) time, O(1) space (plus path length)
+    private func makeExclusiveDirectory(_ url: URL) throws -> Bool {
+        if mkdir(url.path, 0o700) == 0 { return true }
+        if errno == EEXIST { return false }
+        throw ResearchStoreError.ioFailed(String(cString: strerror(errno)))
     }
 
     private func makeDirectory(_ url: URL) throws {

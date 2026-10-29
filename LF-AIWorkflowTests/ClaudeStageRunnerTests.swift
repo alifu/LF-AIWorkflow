@@ -44,7 +44,7 @@ struct ClaudeStageRunnerTests {
     private func decodedResult(_ fixture: String) throws -> RunResult {
         let framer = try NDJSONFramer()
         let lines = try framer.feed(loadFixture(fixture)) + framer.finish()
-        for case .result(let r) in lines.compactMap(ClaudeEventDecoder.decode) { return r }
+        for case .result(let r) in lines.flatMap(ClaudeEventDecoder.decode) { return r }
         throw CocoaError(.fileReadCorruptFile)
     }
 

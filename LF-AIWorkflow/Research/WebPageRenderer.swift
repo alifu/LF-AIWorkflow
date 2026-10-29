@@ -26,6 +26,7 @@ final class WebPageRenderer {
         return f
     }()
 
+    /// Complexity: O(r * L) time, O(r * L) space (r = block rules, L = longest rule)
     static var blockRules: String {
         let rules = blockedURLFilters.map { ["trigger": ["url-filter": $0], "action": ["type": "block"]] }
         let data = (try? JSONSerialization.data(withJSONObject: rules)) ?? Data("[]".utf8)
@@ -39,10 +40,35 @@ final class WebPageRenderer {
         return policy.check(url) == .allowed
     }
 
-    static let fixtureBase = URL(string: "https://fixture.test/")!
+    nonisolated static let fixtureBase = URL(string: "https://fixture.test/")!
+
+    /// Whether a hop's host resolves only to allowed addresses (TD-076). Complexity: O(a) time, O(a) space
+    nonisolated static func hopAllowed(_ url: URL, policy: HostPolicy, resolver: any HostResolving) async -> Bool {
+        guard policy.check(url) == .allowed, let host = url.host(percentEncoded: true) else { return false }
+        guard let addresses = try? await resolver.addresses(for: host) else { return false }
+        return policy.check(addresses: addresses) == .allowed
+    }
+
+    /// The page the view ended on must still be allowed and match the extracted URL (TD-100).
+    /// Complexity: O(1) time, O(1) space
+    nonisolated static func finalURLMatches(viewURL: URL?, pageURL: URL, policy: HostPolicy, fixture: Bool) -> Bool {
+        guard let viewURL else { return false }
+        if fixture { return viewURL == fixtureBase }
+        guard policy.check(viewURL) == .allowed else { return false }
+        func stripped(_ u: URL) -> String {
+            var c = URLComponents(url: u, resolvingAgainstBaseURL: false)
+            c?.fragment = nil
+            return c?.string ?? u.absoluteString
+        }
+        return stripped(viewURL) == stripped(pageURL)
+    }
 
     private let policy: HostPolicy
-    init(policy: HostPolicy = .standard) { self.policy = policy }
+    private let resolver: any HostResolving
+    init(policy: HostPolicy = .standard, resolver: any HostResolving = SystemHostResolver()) {
+        self.policy = policy
+        self.resolver = resolver
+    }
 
     /// Complexity: O(page size) time, O(page size) space
     func render(_ url: URL, settle: Duration = .milliseconds(1500), timeout: Duration = .seconds(30)) async throws -> CapturedPage {
@@ -57,6 +83,8 @@ final class WebPageRenderer {
         }
     }
 
+    /// Loads, settles, runs `extract.js`, and checks the final URL. Waits up to `timeout` for the load.
+    /// Complexity: O(p) time, O(p) space (p = extracted page JSON bytes); the load wait is bounded by `timeout`
     private func run(settle: Duration, timeout: Duration, allowedFirst: URL?,
                      start: (WKWebView) -> Void) async throws -> CapturedPage {
         guard let scriptURL = Bundle.main.url(forResource: "extract", withExtension: "js"),
@@ -79,49 +107,68 @@ final class WebPageRenderer {
             }
         }
         let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 1024, height: 768), configuration: config)
-        let delegate = NavigationGate(policy: policy, allowedFirst: allowedFirst)
+        let delegate = NavigationGate(policy: policy, resolver: resolver, allowedFirst: allowedFirst)
         view.navigationDelegate = delegate
         defer { view.navigationDelegate = nil; view.stopLoading() }
 
         try await delegate.load(view, timeout: timeout, start: start)
         try await Task.sleep(for: settle)
         let result: Any?
-        do { result = try await view.evaluateJavaScript(script) } catch { throw CaptureError.renderFailed(String(describing: error)) }
+        do {
+            result = try await view.evaluateJavaScript(script, in: nil, contentWorld: .defaultClient)
+        } catch { throw CaptureError.renderFailed(String(describing: error)) }
         guard let json = result as? String else { throw CaptureError.malformed }
-        return try CapturedPage.parse(json, policy: policy)
+        let page = try CapturedPage.parse(json, policy: policy)
+        guard Self.finalURLMatches(viewURL: view.url, pageURL: page.url, policy: policy, fixture: allowedFirst != nil) else {
+            throw CaptureError.blockedNavigation
+        }
+        return page
     }
 }
 
 /// Re-checks every navigation with `HostPolicy`; bridges delegate callbacks to async via one continuation.
 @MainActor
-private final class NavigationGate: NSObject, WKNavigationDelegate {
+final class NavigationGate: NSObject, WKNavigationDelegate {
     private let policy: HostPolicy
+    private let resolver: any HostResolving
     private var allowedFirst: URL?
     private var continuation: CheckedContinuation<Void, Error>?
 
-    init(policy: HostPolicy, allowedFirst: URL?) {
+    init(policy: HostPolicy, resolver: any HostResolving, allowedFirst: URL?) {
         self.policy = policy
+        self.resolver = resolver
         self.allowedFirst = allowedFirst
     }
 
+    /// Starts one navigation and suspends until the delegate finishes it or `timeout` elapses.
+    /// Complexity: O(1) time, O(1) space (the timer and continuation are constant-size)
     func load(_ view: WKWebView, timeout: Duration, start: (WKWebView) -> Void) async throws {
         let timer = Task { [weak self] in
             try await Task.sleep(for: timeout)
             self?.finish(.failure(CaptureError.timedOut))
         }
         defer { timer.cancel() }
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            continuation = c
-            start(view)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled { c.resume(throwing: CancellationError()); return }
+                continuation = c
+                start(view)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(.failure(CancellationError())) }
         }
     }
 
+    /// Resumes the pending continuation once; later calls are no-ops.
+    /// Complexity: O(1) time, O(1) space
     private func finish(_ result: Result<Void, Error>) {
         guard let c = continuation else { return }
         continuation = nil
         c.resume(with: result)
     }
 
+    /// Blocks downloads and disallowed hops; main-frame hops are then resolved before they are allowed.
+    /// Complexity: O(1) time, O(1) space to decide synchronously (the async resolution is O(a), a = resolved addresses)
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         if navigationAction.shouldPerformDownload { return decisionHandler(.cancel) }
@@ -133,11 +180,23 @@ private final class NavigationGate: NSObject, WKNavigationDelegate {
             allowedFirst = nil
             if url == first || url.absoluteString == "about:blank" { return decisionHandler(.allow) }
         }
-        if policy.check(url) == .allowed { return decisionHandler(.allow) }
-        decisionHandler(.cancel)
-        finish(.failure(CaptureError.blockedNavigation))
+        // Every main-frame hop (including redirects) is resolved and re-checked before it is followed.
+        guard policy.check(url) == .allowed else {
+            decisionHandler(.cancel)
+            return finish(.failure(CaptureError.blockedNavigation))
+        }
+        let policy = self.policy, resolver = self.resolver
+        Task { @MainActor [weak self] in
+            if await WebPageRenderer.hopAllowed(url, policy: policy, resolver: resolver) {
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+                self?.finish(.failure(CaptureError.blockedNavigation))
+            }
+        }
     }
 
+    /// Complexity: O(1) time, O(1) space
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)

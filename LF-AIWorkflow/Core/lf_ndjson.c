@@ -22,6 +22,7 @@ lf_ndjson *lf_ndjson_create(size_t max_line) {
         return NULL;
     }
     fr->max_line = max_line ? max_line : LF_NDJSON_DEFAULT_MAX_LINE;
+    if (fr->max_line > SIZE_MAX - 1) fr->max_line = SIZE_MAX - 1;   /* keeps max_line + 1 from wrapping */
     return fr;
 }
 
@@ -176,7 +177,7 @@ static int read_string(scan_cur *c, const char **body, size_t *body_len) {
     const char *start = ++c->p;
     while (c->p < c->end) {
         if (*c->p == '\\') {
-            c->p += 2;
+            c->p = (size_t)(c->end - c->p) > 2 ? c->p + 2 : c->end;   /* never step past end */
             continue;
         }
         if (*c->p == '"') {

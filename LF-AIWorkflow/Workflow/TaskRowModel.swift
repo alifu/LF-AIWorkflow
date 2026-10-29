@@ -6,7 +6,7 @@
 import Foundation
 
 nonisolated enum RowAction: Sendable, Hashable {
-    case approve, openPlan, cancel, viewReview, openWorktree, viewPlan, resume, skipTests
+    case approve, openPlan, cancel, viewReview, openWorktree, viewPlan, resume, skipTests, retry, removeWorktree
 }
 
 /// Pure projection of a `WorkflowTask` for the list and detail views.
@@ -95,9 +95,11 @@ nonisolated struct TaskRowModel: Sendable, Equatable, Identifiable {
             if task.resumeState != nil { actions.insert(.resume) }
             if task.waitReason?.allowsSkippingTests == true { actions.insert(.skipTests) }
         }
+        if task.state == .failed { actions.insert(.retry) }
         if task.reviewFile != nil { actions.insert(.viewReview) }
         if task.planFile != nil { actions.insert(.viewPlan) }
         if task.worktree != nil { actions.insert(.openWorktree) }
+        if task.worktree != nil, task.state == .done || task.state == .cancelled { actions.insert(.removeWorktree) }
         return actions
     }
 }
@@ -124,6 +126,7 @@ nonisolated enum TaskText {
     static func waitText(_ reason: WaitReason?) -> String {
         switch reason {
         case .budgetExceeded(let spent, let limit): "Token budget reached (\(TaskFormat.tokens(spent)) of \(TaskFormat.tokens(limit)))"
+        case .dayBudgetExceeded(let spent, let limit): "Daily token budget reached (\(TaskFormat.tokens(spent)) of \(TaskFormat.tokens(limit)))"
         case .noTestCommand: "No test command found"
         case .testTimedOut: "Tests timed out"
         case .testEntryModified(let path): "The code changed \(path), which runs the tests. Review it, then resume"

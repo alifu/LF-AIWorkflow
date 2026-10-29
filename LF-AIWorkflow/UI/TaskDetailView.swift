@@ -35,13 +35,13 @@ struct TaskDetailView: View {
                     MascotView(pose: pose(row), size: 64)
                     VStack(alignment: .leading, spacing: 6) {
                         StageChipStrip(chips: row.chips)
-                        Text(row.statusLine).font(theme.bodyLargeFont.font).foregroundStyle(row.needsAttention ? palette.warning.color : palette.secondaryText.color)
+                        TaskStatusLine(text: row.statusLine, needsAttention: row.needsAttention, font: theme.bodyLargeFont)
                         detailActions(row)
                     }
                 }
                 if let task = model.task(row.id) {
                     if row.actions.contains(.viewReview) {
-                        ReviewView(task: task, onDone: { router.closeDetail() }).id(task.reviewFile)
+                        ReviewView(task: task, sendToFix: { findings in Task { await model.sendToFix(task.id, findings: findings) } }, onDone: { router.closeDetail() }).id(task.reviewFile)
                     }
                     if row.actions.contains(.viewPlan) { PlanView(task: task).id(row.state) }
                 }
@@ -84,7 +84,7 @@ struct TaskDetailView: View {
             if row.actions.contains(.approve) {
                 Button("Review plan") { approvalDismissed = false }
                     .accessibilityHint("Opens the plan approval sheet")
-                Button("Approve") { Task { await model.approve(row.id) } }.buttonStyle(.borderedProminent)
+                Button("Approve") { Task { _ = await model.approve(row.id) } }.buttonStyle(.borderedProminent)
             }
             if row.actions.contains(.resume) { Button(row.resumeLabel) { Task { await model.resume(row.id, raising: row.resumeRaiseTokens) } } }
             if row.actions.contains(.skipTests) { Button("Skip tests") { Task { await model.skipTests(row.id) } } }

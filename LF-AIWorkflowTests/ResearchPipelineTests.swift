@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 import Testing
 @testable import LF_AIWorkflow
 
@@ -176,6 +177,82 @@ struct ResearchPipelineTests {
         let report = try String(contentsOf: #require(done.reportFile), encoding: .utf8)
         #expect(report.contains("Beta wins on price"))
         #expect(report.contains("Alpha is faster"))
+    }
+
+    @Test func followUpOverBudgetParksWithoutCallingClaude() async throws {
+        let reply = try answer()
+        let h = try harness(pages: [page(1)]) { _ in reply }
+        let id = await h.pipeline.submit(draft())
+        _ = try await wait(h.pipeline, id, for: .awaitingPreview)
+        await h.pipeline.send(id, excluded: [])
+        _ = try await wait(h.pipeline, id, for: .done)
+        let before = h.runner.calls.count
+        await h.pipeline.updateSettings(ResearchSettings(taskBudget: 1))
+        await h.pipeline.followUp(id, question: "And on price?")
+        for _ in 0..<1000 {
+            if await h.pipeline.task(id)?.inputReason == .budgetExceeded { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let parked = try #require(await h.pipeline.task(id))
+        #expect(parked.inputReason == .budgetExceeded)
+        #expect(parked.state == .done)
+        #expect(h.runner.calls.count == before)
+    }
+
+    @Test func followUpOnDeepTaskDoesNotUseOpus() async throws {
+        let reply = try answer()
+        let h = try harness(pages: [page(1)]) { req in
+            req.stage == .followUp ? FakeResearchRunner.ok("More [1].", tokens: 5) : reply
+        }
+        let id = await h.pipeline.submit(draft(deep: true))
+        _ = try await wait(h.pipeline, id, for: .awaitingPreview)
+        await h.pipeline.send(id, excluded: [])
+        _ = try await wait(h.pipeline, id, for: .done)
+        await h.pipeline.followUp(id, question: "More?")
+        for _ in 0..<1000 where h.runner.calls.last?.stage != .followUp { try await Task.sleep(for: .milliseconds(5)) }
+        let call = try #require(h.runner.calls.last)
+        #expect(call.stage == .followUp)
+        #expect(call.config.model != "opus")
+    }
+
+    @Test func passwordPageFromSafariIsRejected() async throws {
+        let tabURL = URL(string: "https://login.example.com/a")!
+        let secret = CapturedPage(title: "Login", url: tabURL, text: "secret account data", headings: [], links: [],
+                                  tables: [], hasPasswordField: true)
+        let root = try TestEnv.makeTempDir()
+        let runner = FakeResearchRunner { _ in FakeResearchRunner.ok("never") }
+        let deps = ResearchDependencies(
+            safari: FakeSafari(pages: [tabURL: secret]), crawler: FakeCrawler(pages: []), runner: runner,
+            store: ResearchStore(root: root), now: { Date() }, dayTokensUsed: { 0 })
+        let pipeline = ResearchPipeline(deps: deps, settings: ResearchSettings())
+        let tab = SafariTab(window: 1, tab: 1, title: "t", url: tabURL, current: true)
+        let id = await pipeline.submit(ResearchDraft(question: "q", output: .summary, deep: false, tabs: [tab]))
+        let failed = try await wait(pipeline, id, for: .failed)
+        #expect(failed.errorMessage == ResearchPipelineError.noPages.message)
+        #expect(runner.calls.isEmpty)
+    }
+
+    @Test func extractUsageIsRecordedPerChildWhenASiblingFails() async throws {
+        let root = try TestEnv.makeTempDir()
+        let extractCount = OSAllocatedUnfairLock(initialState: 0)
+        let recorded = OSAllocatedUnfairLock<[Int]>(initialState: [])
+        let runner = FakeResearchRunner { request in
+            guard request.stage == .extract else { return FakeResearchRunner.ok("never") }
+            let n = extractCount.withLock { count -> Int in count += 1; return count }
+            return n == 1 ? FakeResearchRunner.ok("extracted", tokens: 100) : FakeResearchRunner.error("boom")
+        }
+        var deps = ResearchDependencies(
+            safari: FakeSafari(pages: [:]), crawler: FakeCrawler(pages: [page(1), page(2)]), runner: runner,
+            store: ResearchStore(root: root), now: { Date() }, dayTokensUsed: { 0 })
+        deps.recordDayTokens = { tokens in recorded.withLock { $0.append(tokens) } }
+        // A tiny analyze budget forces the extract stage (corpus > analyzeBudget) with one child at a time.
+        let settings = ResearchSettings(analyzeBudget: 1, extractConcurrency: 1)
+        let pipeline = ResearchPipeline(deps: deps, settings: settings)
+        let id = await pipeline.submit(draft())
+        _ = try await wait(pipeline, id, for: .awaitingPreview)
+        await pipeline.send(id, excluded: [])
+        _ = try await wait(pipeline, id, for: .failed)
+        #expect(recorded.withLock { $0 } == [100])
     }
 
     @Test func claudeErrorFailsTheTaskWithItsMessage() async throws {

@@ -85,7 +85,7 @@ static int is_hidden(const FTSENT *ent) {
     return ent->fts_name[0] == '.';
 }
 
-/// Complexity: O(F + sum of sizes) time, O(depth) space
+/// Complexity: O(F + sum of sizes) time, O(depth + entries of open directories) space
 long lf_scan_walk(const char *root, const lf_scan_options *opts, lf_scan_cb cb, void *ctx) {
     if (root == NULL || cb == NULL) { errno = EINVAL; return -1; }
     lf_scan_options defaults = { -1, NULL, 0, 0, 0 };
@@ -106,8 +106,12 @@ long lf_scan_walk(const char *root, const lf_scan_options *opts, lf_scan_cb cb, 
     }
 
     long count = 0;
+    int stopped = 0;   /* callback asked to stop: errno may be stale from fts internals */
     FTSENT *ent;
-    while ((ent = fts_read(fts)) != NULL) {
+    for (;;) {
+        errno = 0;   /* fts_read returns NULL both at the end and on error; only errno tells them apart */
+        ent = fts_read(fts);
+        if (ent == NULL) break;
         if (ent->fts_info == FTS_D) {
             int too_deep = o->max_depth >= 0 && ent->fts_level >= o->max_depth;
             int hidden = ent->fts_level > 0 && !o->include_hidden && is_hidden(ent);
@@ -134,7 +138,14 @@ long lf_scan_walk(const char *root, const lf_scan_options *opts, lf_scan_cb cb, 
             }
         }
         count++;
-        if (cb(&e, ctx) != 0) break;
+        if (cb(&e, ctx) != 0) { stopped = 1; break; }
+    }
+    if (!stopped && errno != 0) {
+        int saved = errno;
+        fts_close(fts);
+        free(buf);
+        errno = saved;
+        return -1;
     }
     fts_close(fts);
     free(buf);

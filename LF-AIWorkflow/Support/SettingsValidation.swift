@@ -103,3 +103,27 @@ nonisolated enum ToolPathValidator {
         return manager.isExecutableFile(atPath: resolved) ? .regularExecutable : .notExecutable
     }
 }
+
+nonisolated enum ResearchRootError: Error, Equatable, Sendable {
+    case notAbsolute, invalidCharacters
+
+    var message: String {
+        switch self {
+        case .notAbsolute: "Use an absolute path that starts with /."
+        case .invalidCharacters: "The path has control characters or parent-folder (..) parts."
+        }
+    }
+}
+
+nonisolated enum ResearchRootValidator {
+    /// Trims the text; empty means "use the default folder". Otherwise only a clean absolute path passes.
+    /// Complexity: O(n) time, O(n) space (n = path length)
+    static func validate(_ raw: String) -> Result<String, ResearchRootError> {
+        let typed = raw.trimmingCharacters(in: .whitespaces)
+        if typed.isEmpty { return .success("") }
+        guard typed.hasPrefix("/") else { return .failure(.notAbsolute) }
+        guard !typed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              !typed.split(separator: "/").contains("..") else { return .failure(.invalidCharacters) }
+        return .success(typed)
+    }
+}

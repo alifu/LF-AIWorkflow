@@ -54,4 +54,17 @@ struct TaskLogStoreTests {
         await store.append("x", stage: .plan, to: id)
         #expect(await iterator.next() == id)
     }
+
+    @Test func tailReturnsLastNLinesAndRevision() async {
+        let store = TaskLogStore()
+        let id = UUID()
+        for i in 1...5 { await store.append("l\(i)", stage: .code, to: id) }
+        let snap = await store.tail(for: id, limit: 2)
+        #expect(snap.lines.map(\.text) == ["l4", "l5"])
+        #expect(snap.revision == 5)
+        await store.append("l6", stage: .code, to: id)
+        #expect(await store.tail(for: id, limit: 2).revision == 6)
+        #expect(await store.tail(for: UUID(), limit: 2) == TaskLogSnapshot(lines: [], revision: 0))
+        #expect(await store.tail(for: id, limit: 0).lines.isEmpty)
+    }
 }

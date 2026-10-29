@@ -16,6 +16,10 @@ final class ComposerViewModel {
     private let accessHooks: ScopedAccess.Hooks
 
     var prompt = ""
+    /// Skip Plan and approval (TD-044). Cleared after each start.
+    var startAtCode = false
+    /// Per-task worktree choice (TD-044).
+    var useWorktree = true
     private(set) var projectRoot: URL?
     private(set) var documents: [Attachment] = []
     private(set) var skillDirs: [URL] = []
@@ -156,12 +160,14 @@ final class ComposerViewModel {
     func makeDraft() -> TaskDraft? {
         guard canStart, let projectRoot else { return nil }
         return TaskDraft(title: DraftTitle.derive(from: prompt), prompt: prompt, projectRoot: projectRoot,
-                         documents: documents.map(\.url), skillDirs: skillDirs)
+                         documents: documents.map(\.url), skillDirs: skillDirs,
+                         startAtCode: startAtCode, useWorktree: useWorktree)
     }
 
     /// Clears the draft after a start. The project and its skill folders stay for the next task.
     func reset() {
         prompt = ""
+        startAtCode = false
         for document in documents { release(document.url) }
         documents = []
         pendingSecrets = []

@@ -21,6 +21,11 @@ nonisolated enum SafariPermission {
         return state(forStatus: AEDeterminePermissionToAutomateTarget(desc, typeWildCard, typeWildCard, false))
     }
 
+    /// `current()` run off the main actor: the Apple Event round trip waits on Safari and can take up to the
+    /// Apple Event timeout (60 s), which must never block UI or main-actor work.
+    /// Complexity: O(1) time, O(1) space
+    @concurrent static func currentOffMain() async -> SafariPermissionState { current() }
+
     /// Complexity: O(1) time, O(1) space
     static func state(forStatus status: OSStatus) -> SafariPermissionState {
         switch status {

@@ -20,7 +20,7 @@ nonisolated enum TaskState: String, Sendable, Hashable, CaseIterable, Codable {
         }
     }
 
-    /// Terminal states have no outgoing transitions.
+    /// Terminal states end the task; only `failed` can be retried.
     var isTerminal: Bool {
         switch self {
         case .done, .failed, .cancelled: true
@@ -29,8 +29,8 @@ nonisolated enum TaskState: String, Sendable, Hashable, CaseIterable, Codable {
     }
 }
 
-nonisolated enum WaitReason: Sendable, Equatable {
-    case budgetExceeded(spent: Int, limit: Int), noTestCommand, testTimedOut, testEntryModified(String), toolMissing(Tool), other(String)
+nonisolated enum WaitReason: Sendable, Equatable, Codable {
+    case budgetExceeded(spent: Int, limit: Int), dayBudgetExceeded(spent: Int, limit: Int), noTestCommand, testTimedOut, testEntryModified(String), toolMissing(Tool), other(String)
 
     var allowsSkippingTests: Bool {
         switch self {
@@ -40,11 +40,11 @@ nonisolated enum WaitReason: Sendable, Equatable {
     }
 }
 
-nonisolated enum FailureReason: Sendable, Equatable {
+nonisolated enum FailureReason: Sendable, Equatable, Codable {
     case claudeError(String), fixLoopExhausted(attempts: Int), worktree(String), spawn(String), invalidCommand(String)
 }
 
-nonisolated struct Worktree: Sendable, Equatable {
+nonisolated struct Worktree: Sendable, Equatable, Codable {
     let path: URL
     let branch: String
     let baseCommit: String

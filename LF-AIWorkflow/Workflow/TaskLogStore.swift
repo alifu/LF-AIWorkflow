@@ -11,6 +11,12 @@ nonisolated struct TaskLogLine: Sendable, Equatable, Identifiable {
     let text: String
 }
 
+/// The newest lines of one task's log plus a per-task revision (total lines ever appended).
+nonisolated struct TaskLogSnapshot: Sendable, Equatable {
+    let lines: [TaskLogLine]
+    let revision: Int
+}
+
 /// Where the engine writes human-readable activity. Optional in `EngineDependencies`.
 nonisolated protocol TaskLogging: Sendable {
     func append(_ text: String, stage: TaskState, to id: UUID) async
@@ -23,6 +29,7 @@ actor TaskLogStore: TaskLogging {
     private let capacity: Int
     private var logs: [UUID: [TaskLogLine]] = [:]
     private var nextId = 0
+    private var revisions: [UUID: Int] = [:]
 
     init(capacityPerTask: Int = 500) {
         capacity = max(1, capacityPerTask)
@@ -45,9 +52,19 @@ actor TaskLogStore: TaskLogging {
         }
         if current.count > capacity { current.removeFirst(current.count - capacity) }
         logs[id] = current
+        revisions[id, default: 0] += pieces.count
         continuation.yield(id)
     }
 
     /// Complexity: O(1) time, O(1) space (copy-on-write)
     func lines(for id: UUID) -> [TaskLogLine] { logs[id] ?? [] }
+}
+
+extension TaskLogStore {
+    /// The last `limit` lines and the revision, without copying the whole log.
+    /// Complexity: O(limit) time, O(limit) space
+    func tail(for id: UUID, limit: Int) -> TaskLogSnapshot {
+        guard limit > 0, let all = logs[id] else { return TaskLogSnapshot(lines: [], revision: revisions[id] ?? 0) }
+        return TaskLogSnapshot(lines: Array(all.suffix(limit)), revision: revisions[id] ?? 0)
+    }
 }

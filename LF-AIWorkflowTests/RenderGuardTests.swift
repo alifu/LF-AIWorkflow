@@ -74,3 +74,50 @@ struct HostResolverTimeoutTests {
         await #expect(throws: HostResolveError.failed) { _ = try await resolver.addresses(for: "x.test") }
     }
 }
+
+private struct HopResolver: HostResolving {
+    var map: [String: [LF_AIWorkflow.IPAddress]]
+    func addresses(for host: String) async throws -> [LF_AIWorkflow.IPAddress] {
+        guard let a = map[host] else { throw HostResolveError.failed }
+        return a
+    }
+}
+
+@MainActor
+struct RenderHopSafetyTests {
+    @Test func redirectHopResolvingToPrivateIPIsRejected() async {
+        let r = HopResolver(map: ["evil.example.com": [.v4(0x0A000005)]])
+        #expect(!(await WebPageRenderer.hopAllowed(URL(string: "https://evil.example.com/")!, policy: .standard, resolver: r)))
+    }
+
+    @Test func hopWithUnresolvableHostIsRejected() async {
+        #expect(!(await WebPageRenderer.hopAllowed(URL(string: "https://nx.example.com/")!, policy: .standard,
+                                                  resolver: HopResolver(map: [:]))))
+    }
+
+    @Test func hopResolvingPublicIsAllowed() async {
+        let r = HopResolver(map: ["ok.example.com": [.v4(0x5DB8D822)]])
+        #expect(await WebPageRenderer.hopAllowed(URL(string: "https://ok.example.com/")!, policy: .standard, resolver: r))
+    }
+
+    @Test func cancelledLoadReturnsImmediately() async {
+        let gate = NavigationGate(policy: .standard, resolver: HopResolver(map: [:]), allowedFirst: nil)
+        let view = WKWebView(frame: .zero)
+        let task = Task { @MainActor in try await gate.load(view, timeout: .seconds(60)) { _ in } }
+        try? await Task.sleep(for: .milliseconds(50))
+        let started = ContinuousClock.now
+        task.cancel()
+        let result = await task.result
+        #expect(ContinuousClock.now - started < .seconds(5))
+        if case .failure(let e) = result { #expect(e is CancellationError) } else { Issue.record("expected cancellation") }
+    }
+
+    @Test func finalURLMismatchOrPrivateIsRejected() {
+        let page = URL(string: "https://example.com/a")!
+        let p = HostPolicy.standard
+        #expect(WebPageRenderer.finalURLMatches(viewURL: URL(string: "https://example.com/a#x"), pageURL: page, policy: p, fixture: false))
+        #expect(!WebPageRenderer.finalURLMatches(viewURL: URL(string: "https://example.com/b"), pageURL: page, policy: p, fixture: false))
+        #expect(!WebPageRenderer.finalURLMatches(viewURL: URL(string: "http://127.0.0.1/a"), pageURL: page, policy: p, fixture: false))
+        #expect(!WebPageRenderer.finalURLMatches(viewURL: nil, pageURL: page, policy: p, fixture: false))
+    }
+}

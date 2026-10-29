@@ -25,10 +25,6 @@ extern "C" {
 /// Complexity: O(1) time, O(1) space
 const char *lf_core_version(void);
 
-/// Returns 1 when the C core was built with AddressSanitizer or UBSan, else 0 (skips wall-clock guards).
-/// Complexity: O(1) time, O(1) space
-int lf_core_built_with_sanitizer(void);
-
 #ifdef __cplusplus
 }
 #endif

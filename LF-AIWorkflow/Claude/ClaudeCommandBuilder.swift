@@ -38,8 +38,11 @@ nonisolated enum ClaudeCommandBuilder {
             throw .invalidToolRule(rule)
         }
         for name in config.builtinTools ?? [] where !isValidToolName(name) { throw .invalidToolName(name) }
+        // A leading `-` would be read by the CLI as a flag, so the prompt is rejected rather than passed through.
         if let prompt = config.appendSystemPrompt,
-           prompt.utf8.count > maxSystemPromptBytes || prompt.utf8.contains(0) { throw .invalidSystemPrompt }
+           prompt.hasPrefix("-") || prompt.utf8.count > maxSystemPromptBytes || prompt.utf8.contains(0) {
+            throw .invalidSystemPrompt
+        }
         var dirPaths: [String] = []
         for dir in addDirs {
             guard dir.path.hasPrefix("/") else { throw .relativeDirectory(dir.path) }

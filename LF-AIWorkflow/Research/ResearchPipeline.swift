@@ -19,6 +19,8 @@ nonisolated struct ResearchDependencies: Sendable {
     let now: @Sendable () -> Date
     /// Tokens already spent today across all tasks (for the day budget).
     let dayTokensUsed: @Sendable () async -> Int
+    /// Adds a research stage's billable tokens to today's shared total.
+    var recordDayTokens: @Sendable (Int) async -> Void = { _ in }
 }
 
 nonisolated struct ResearchSettings: Sendable {
@@ -76,17 +78,40 @@ actor ResearchPipeline {
     private let deps: ResearchDependencies
     private var settings: ResearchSettings
     private var tasks: [UUID: ResearchTask] = [:]
+    /// Submission order (oldest first), kept for persistence.
+    private var order: [UUID] = []
+    private let persistence: (any ResearchPersisting)?
     private var works: [UUID: Work] = [:]
     private var jobs: [UUID: Task<Void, Never>] = [:]
 
-    init(deps: ResearchDependencies, settings: ResearchSettings) {
+    init(deps: ResearchDependencies, settings: ResearchSettings, persistence: (any ResearchPersisting)? = nil) {
         self.deps = deps
+        self.persistence = persistence
         self.settings = settings
         (updates, continuation) = AsyncStream.makeStream(of: ResearchTask.self)
     }
 
+    /// Complexity: O(1) time, O(1) space (dictionary lookup)
     func task(_ id: UUID) -> ResearchTask? { tasks[id] }
 
+    /// Loads stored tasks and publishes them; tasks that were mid-run come back failed (TD-093). Call once at launch.
+    /// Complexity: O(n) time, O(n) space (n = stored tasks)
+    func restore() {
+        guard let persistence, order.isEmpty else { return }
+        for task in ResearchRestore.apply(persistence.load()) where tasks[task.id] == nil {
+            tasks[task.id] = task
+            order.append(task.id)
+            continuation.yield(task)
+        }
+        persist()
+    }
+
+    /// Complexity: O(n) time, O(n) space (n = stored tasks)
+    private func persist() {
+        persistence?.save(order.compactMap { tasks[$0] })
+    }
+
+    /// Complexity: O(1) time, O(1) space
     func updateSettings(_ new: ResearchSettings) { settings = new }
 
     /// Queues a task and runs capture + clean in the background; it stops at `awaitingPreview`.
@@ -94,7 +119,9 @@ actor ResearchPipeline {
     func submit(_ draft: ResearchDraft) -> UUID {
         let task = ResearchTask(question: draft.question, output: draft.output, deep: draft.deep)
         tasks[task.id] = task
+        order.append(task.id)
         continuation.yield(task)
+        persist()
         launch(task.id) { try await $0.prepare(task.id, draft) }
         return task.id
     }
@@ -111,12 +138,14 @@ actor ResearchPipeline {
     }
 
     /// Resumes the saved session with only the question.
+    /// Complexity: O(1) time to enqueue, O(1) space
     func followUp(_ id: UUID, question: String) {
         guard tasks[id]?.state == .done, works[id] != nil, jobs[id] == nil else { return }
         launch(id) { try await $0.runFollowUp(id, question: question) }
     }
 
     /// Cancels the running job (its Claude child and crawl stop with it).
+    /// Complexity: O(n) time, O(n) space (n = stored state, via `advance`'s persist)
     func cancel(_ id: UUID) {
         jobs[id]?.cancel()
         _ = try? advance(id, .cancel)
@@ -124,6 +153,8 @@ actor ResearchPipeline {
 
     // MARK: - Job plumbing
 
+    /// Runs `body` as the task's job; the job clears itself when it ends.
+    /// Complexity: O(1) time to start, O(1) space
     private func launch(_ id: UUID, _ body: @escaping @Sendable (isolated ResearchPipeline) async throws -> Void) {
         jobs[id] = Task {
             do { try await body(self) } catch is CancellationError {
@@ -137,10 +168,13 @@ actor ResearchPipeline {
         }
     }
 
+    /// Complexity: O(n) time, O(n) space (n = stored tasks, via `advance`'s persist)
     private func failTask(_ id: UUID, _ message: String) {
         _ = try? advance(id, .fail) { $0.with(errorMessage: message) }
     }
 
+    /// Applies a state-machine event, publishes the new task, and persists. Throws on an illegal transition.
+    /// Complexity: O(n) time, O(n) space (n = stored tasks, via persist)
     private func advance(_ id: UUID, _ event: ResearchEvent,
                          _ change: (ResearchTask) -> ResearchTask = { $0 }) throws {
         guard let current = tasks[id] else { throw ResearchPipelineError.illegalTransition }
@@ -149,17 +183,23 @@ actor ResearchPipeline {
         let updated = change(current).with(state: next)
         tasks[id] = updated
         continuation.yield(updated)
+        persist()
     }
 
+    /// Applies a change without a state transition, publishes it, and persists.
+    /// Complexity: O(n) time, O(n) space (n = stored tasks, via persist)
     private func update(_ id: UUID, _ change: (ResearchTask) -> ResearchTask) {
         guard let current = tasks[id] else { return }
         let updated = change(current)
         tasks[id] = updated
         continuation.yield(updated)
+        persist()
     }
 
     // MARK: - Capture + clean
 
+    /// Captures, cleans, and saves every page, then stops at the preview.
+    /// Complexity: O(P + B) time, O(P + B) space (P = pages, B = total page bytes; I/O per page)
     private func prepare(_ id: UUID, _ draft: ResearchDraft) async throws {
         try advance(id, .begin)
         let pages = try await capture(draft)
@@ -179,6 +219,8 @@ actor ResearchPipeline {
         try advance(id, .cleaned) { $0.with(folder: folder).with(preview: preview) }
     }
 
+    /// Extracts each open tab, appends inbox pages and crawled pages, and drops password-form pages.
+    /// Complexity: O(T + C) time, O(P) space (T = tabs, C = crawl events, P = kept pages); network-bound
     private func capture(_ draft: ResearchDraft) async throws -> [CapturedPage] {
         var pages: [CapturedPage] = []
         for tab in draft.tabs {
@@ -192,12 +234,15 @@ actor ResearchPipeline {
                 if case .fetched(let page, _) = event { pages.append(page) }
             }
         }
+        pages.removeAll { $0.hasPasswordField }
         guard !pages.isEmpty else { throw ResearchPipelineError.noPages }
         return pages
     }
 
     // MARK: - Extract + analyze
 
+    /// Budget-checks the selected sources, extracts them when the corpus is large, then analyzes.
+    /// Complexity: O(S + B) time, O(S + B) space (S = selected sources, B = their total text bytes); model-bound
     private func analyzeSelected(_ id: UUID, excluded: Set<Int>) async throws {
         guard let work = works[id], let task = tasks[id] else { throw ResearchPipelineError.illegalTransition }
         let kept = work.pages.indices.filter { !excluded.contains($0 + 1) }
@@ -226,6 +271,8 @@ actor ResearchPipeline {
         try await analyze(id, survivors: survivors, work: work)
     }
 
+    /// Builds the nonce-tagged prompt, runs the analyze call, and writes the report (and CSV when present).
+    /// Complexity: O(B + T) time, O(B + T) space (B = prompt text bytes, T = prompt table bytes); model-bound
     private func analyze(_ id: UUID, survivors: [(page: CapturedPage, text: String)], work: Work) async throws {
         guard let task = tasks[id] else { throw ResearchPipelineError.illegalTransition }
         let sources = survivors.enumerated().map { PromptSource(id: $0 + 1, url: $1.page.url, text: $1.text) }
@@ -239,7 +286,7 @@ actor ResearchPipeline {
             stage: .analyze, config: settings.policy.config(for: .analyze, deep: task.deep, systemPrompt: system),
             prompt: prompt, sessionId: nil, workingDirectory: work.folder.url)
         let outcome = try await Self.collect(deps.runner, request)
-        record(id, outcome)
+        await record(id, outcome)
         try advance(id, .analyzed)
         let report = ReportWriter.parse(outcome.text ?? "", sourceCount: sources.count)
         let resources = survivors.map { ResearchSource(url: $0.page.url.absoluteString, title: $0.page.title, body: "") }
@@ -251,17 +298,26 @@ actor ResearchPipeline {
         try advance(id, .reported) { $0.with(reportFile: file) }
     }
 
+    /// Resumes the saved session with the question and appends the answer to the report.
+    /// Complexity: O(R + Q) time, O(R + Q) space (R = report bytes, Q = question bytes); model-bound
     private func runFollowUp(_ id: UUID, question: String) async throws {
         guard let work = works[id], let task = tasks[id] else { throw ResearchPipelineError.illegalTransition }
         guard let session = task.sessionId else { throw ResearchPipelineError.noSession }
+        let estimate = TokenEstimator.estimate(question)
+        let day = await deps.dayTokensUsed()
+        if task.tokensUsed + estimate > settings.taskBudget || day + estimate > settings.dayBudget {
+            update(id) { $0.with(inputReason: .budgetExceeded) }
+            return
+        }
+        update(id) { $0.with(inputReason: nil) }
         try advance(id, .followUp)
         let request = ResearchRunRequest(
             stage: .followUp,
-            config: settings.policy.config(for: .followUp, deep: task.deep, systemPrompt: work.systemPrompt),
+            config: settings.policy.config(for: .followUp, deep: false, systemPrompt: work.systemPrompt),
             prompt: ResearchPromptBuilder.followUpPrompt(question: question), sessionId: session,
             workingDirectory: work.folder.url)
         let outcome = try await Self.collect(deps.runner, request)
-        record(id, outcome)
+        await record(id, outcome)
         try advance(id, .analyzed)
         let answer = ReportWriter.parse(outcome.text ?? "", sourceCount: Int.max / 2).answer
         let heading = ReportWriter.sanitize(question).replacingOccurrences(of: "\n", with: " ")
@@ -271,13 +327,14 @@ actor ResearchPipeline {
         try advance(id, .reported) { $0.with(reportFile: file) }
     }
 
+    /// Runs one extract call per source with at most `extractConcurrency` in flight.
+    /// Complexity: O(S * cap) time, O(S * cap) space (S = sources, cap = per-source token cap); model-bound
     private func extractAll(_ id: UUID, texts: [String], pages: [CapturedPage], work: Work) async throws -> [String] {
         let cap = settings.perSourceCap
         let runner = deps.runner
         let policy = settings.policy
         let folder = work.folder.url
         var results = [String](repeating: "", count: texts.count)
-        var usage: [StageRunOutcome] = []
         try await withThrowingTaskGroup(of: (Int, StageRunOutcome).self) { group in
             var next = 0
             func enqueue() {
@@ -297,14 +354,15 @@ actor ResearchPipeline {
             for _ in 0..<settings.extractConcurrency { enqueue() }
             while let (i, outcome) = try await group.next() {
                 results[i] = outcome.text ?? ""
-                usage.append(outcome)
+                await record(id, outcome)
                 enqueue()
             }
         }
-        for outcome in usage { record(id, outcome) }
         return results
     }
 
+    /// Lists the page tables that still fit the analyze budget after the source text is counted.
+    /// Complexity: O(S + R) time, O(K) space (S = sources, R = table rows, K = kept tables)
     private func promptTables(_ pages: [CapturedPage], sources: [PromptSource]) -> [PromptTable] {
         var remaining = settings.analyzeBudget - sources.reduce(0) { $0 + TokenEstimator.estimate($1.text) }
         var out: [PromptTable] = []
@@ -320,7 +378,10 @@ actor ResearchPipeline {
         return out
     }
 
-    private func record(_ id: UUID, _ outcome: StageRunOutcome) {
+    /// Adds the stage's tokens to the task and the day total, keeping the session id and denials.
+    /// Complexity: O(n) time, O(n) space (n = stored tasks, via update's persist)
+    private func record(_ id: UUID, _ outcome: StageRunOutcome) async {
+        await deps.recordDayTokens(outcome.usage.billableTotal)
         update(id) {
             $0.with(tokensUsed: $0.tokensUsed + outcome.usage.billableTotal)
                 .with(sessionId: outcome.sessionId ?? $0.sessionId)
@@ -385,6 +446,7 @@ actor ResearchPipeline {
 
 nonisolated extension CapturedPage {
     /// Copy with different text (used after boilerplate removal).
+    /// Complexity: O(1) time, O(1) space (fields are shared, not copied)
     func replacingText(_ newText: String) -> CapturedPage {
         CapturedPage(title: title, url: url, text: newText, headings: headings, links: links, tables: tables,
                      hasPasswordField: hasPasswordField)

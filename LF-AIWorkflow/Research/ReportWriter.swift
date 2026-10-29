@@ -39,7 +39,7 @@ nonisolated enum ReportWriter {
         return out
     }
 
-    /// Removes control characters, images, and non-http(s) links.
+    /// Removes control characters, images, and non-http(s) links; escapes `<` unless it opens an http(s) autolink.
     /// Complexity: O(n) time, O(n) space
     static func sanitize(_ text: String) -> String {
         var s = String(String.UnicodeScalarView(text.unicodeScalars.filter(isAllowed)))
@@ -47,6 +47,7 @@ nonisolated enum ReportWriter {
         s = replace(linkPattern, in: s) { isHTTP($0[2]) ? "[\($0[1])](\($0[2]))" : $0[1] }
         s = replace(autolinkPattern, in: s) { isHTTP($0[1]) ? "<\($0[1])>" : "" }
         s = replace(refDefPattern, in: s) { isHTTP($0[2]) ? $0[0] : "" }
+        s = replace(rawAnglePattern, in: s) { _ in "&lt;" }
         return s
     }
 
@@ -56,6 +57,7 @@ nonisolated enum ReportWriter {
     private static let linkPattern = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\(\s*<?([^)>\s]*)[^)]*\)"#)
     private static let autolinkPattern = try! NSRegularExpression(pattern: #"<([A-Za-z][A-Za-z0-9+.\-]*:[^>\s]*)>"#)
     private static let refDefPattern = try! NSRegularExpression(pattern: #"(?m)^[ ]{0,3}\[([^\]]+)\]:[ ]*<?(\S+?)>?(?:[ ].*)?$"#)
+    private static let rawAnglePattern = try! NSRegularExpression(pattern: #"<(?!https?://[^>\s]*>)"#, options: [.caseInsensitive])
     private static let citationPattern = try! NSRegularExpression(pattern: #"\[(\d{1,6})\]"#)
 
     private static func isAllowed(_ u: Unicode.Scalar) -> Bool {

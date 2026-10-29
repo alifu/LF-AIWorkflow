@@ -16,6 +16,21 @@ struct ResearchStoreTests {
         #expect(!s.isEmpty)
     }
 
+    @Test func folderNameTakenByFileOrSymlinkIsSkipped() async throws {
+        let root = try TestEnv.makeTempDir()
+        let store = ResearchStore(root: root)
+        let first = try await store.createFolder(question: "Taken", date: date)
+        let name = first.url.lastPathComponent
+        let plainFile = root.appendingPathComponent(name + "-2")
+        try Data("occupied".utf8).write(to: plainFile)
+        let link = root.appendingPathComponent(name + "-3")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/nonexistent-target")
+        let next = try await store.createFolder(question: "Taken", date: date)
+        #expect(next.url.lastPathComponent == name + "-4")
+        #expect(try String(contentsOf: plainFile, encoding: .utf8) == "occupied")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == "/nonexistent-target")
+    }
+
     @Test func slugEmptyAndEmojiFallBackToPage() {
         #expect(Slug.make("") == "page")
         #expect(Slug.make("🔥🔥") == "page")

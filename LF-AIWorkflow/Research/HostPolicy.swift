@@ -73,6 +73,7 @@ nonisolated struct HostPolicy: Sendable {
             (0x0000_0000, 8), (0x0A00_0000, 8), (0x6440_0000, 10), (0x7F00_0000, 8),
             (0xA9FE_0000, 16), (0xAC10_0000, 12), (0xC000_0000, 24), (0xC0A8_0000, 16),
             (0xC612_0000, 15), (0xE000_0000, 4), (0xF000_0000, 4),
+            (0xC000_0200, 24), (0xC633_6400, 24), (0xCB00_7100, 24),  // RFC 5737 documentation ranges
         ]
         return ranges.contains { base, bits in (v >> UInt32(32 - bits)) == (base >> UInt32(32 - bits)) }
     }
@@ -93,6 +94,10 @@ nonisolated struct HostPolicy: Sendable {
             return isBlockedV4(v4(12))
         }
         if b[0] == 0x20 && b[1] == 0x02 { return isBlockedV4(v4(2)) }  // 6to4
+        if b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x00 && b[3] == 0x00 { return true }  // Teredo 2001::/32
+        if b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0D && b[3] == 0xB8 { return true }  // 2001:db8::/32 documentation
+        // NAT64 local-use 64:ff9b:1::/48
+        if b[0] == 0x00, b[1] == 0x64, b[2] == 0xFF, b[3] == 0x9B, b[4] == 0x00, b[5] == 0x01 { return true }
         if (b[0] & 0xFE) == 0xFC { return true }                       // fc00::/7
         if b[0] == 0xFE && (b[1] & 0xC0) == 0x80 { return true }       // fe80::/10
         if b[0] == 0xFF { return true }                                // ff00::/8

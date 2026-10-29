@@ -5,21 +5,6 @@
 
 import Foundation
 
-/// Stand-in runner when the Claude CLI cannot be found: every stage fails with the locator's message.
-nonisolated struct UnavailableClaudeRunner: ClaudeStageRunning {
-    let error: ToolLocatorError
-
-    func run(_ request: StageRunRequest) -> AsyncThrowingStream<StageRunEvent, Error> {
-        AsyncThrowingStream { $0.finish(throwing: error) }
-    }
-}
-
-extension UnavailableClaudeRunner: ResearchClaudeRunning {
-    func run(_ request: ResearchRunRequest) -> AsyncThrowingStream<StageRunEvent, Error> {
-        AsyncThrowingStream { $0.finish(throwing: error) }
-    }
-}
-
 /// Stand-in when the bundled Safari scripts are missing: every call reports Safari as unavailable.
 nonisolated struct UnavailableSafari: SafariControlling {
     func tabs() async throws(SafariError) -> [SafariTab] { throw .safariNotRunning }
@@ -51,6 +36,22 @@ enum AppComposition {
     /// The one settings store, shared by the notch panel's hosting view and the Settings scene (separate view trees).
     static let settings = SettingsStore()
 
+    /// Where the daily token ledger lives: `~/Library/Application Support/LF-AIWorkflow/day-tokens.json`.
+    static var ledgerURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("LF-AIWorkflow", isDirectory: true).appendingPathComponent("day-tokens.json")
+    }
+
+    /// Where tasks are persisted: `~/Library/Application Support/LF-AIWorkflow/tasks.json`.
+    static var tasksURL: URL? {
+        ledgerURL?.deletingLastPathComponent().appendingPathComponent("tasks.json")
+    }
+
+    /// Where research tasks are persisted, next to `tasks.json`.
+    static var researchURL: URL? {
+        ledgerURL?.deletingLastPathComponent().appendingPathComponent("research.json")
+    }
+
     /// The login-shell PATH (off the main actor, 5 s cap) merged with the process PATH and the install fallbacks.
     /// Complexity: O(d) time over PATH entries plus the login-shell run, O(d) space
     static func resolveSearchPath() async -> [String] {
@@ -59,41 +60,55 @@ enum AppComposition {
         return ToolLocator.searchPath(loginShellPATH: loginPath, processPATH: env["PATH"], home: NSHomeDirectory())
     }
 
-    /// Locates the tools (with the Settings overrides) and wires the engine from one snapshot of the settings.
-    /// Tool paths are read here only: a changed CLI path takes effect after the next launch.
+    /// A provider that rebuilds the locator from the live Settings paths on every call.
+    /// Complexity: O(1) time to build, O(d) space (search path)
+    static func liveLocators(searchPath: [String]) -> ToolLocatorProvider {
+        ToolLocatorProvider { await MainActor.run { ToolLocator(searchPath: searchPath, overrides: settings.toolPaths) } }
+    }
+
+    /// Wires the engine from one snapshot of the settings. The Claude, git and graphify clients ask the live locator
+    /// per call, so a changed CLI path applies to the next task without a relaunch.
     /// Complexity: O(d) time over PATH entries plus the login-shell run (bounded by its 5 s timeout), O(d) space
     static func makeServices() async -> AppServices {
         let snapshot = settings.snapshot()
         let searchPath = await resolveSearchPath()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = searchPath.joined(separator: ":")
-        let locator = ToolLocator(searchPath: searchPath, overrides: snapshot.toolPaths)
+        let locators = liveLocators(searchPath: searchPath)
         let engineSettings = EngineSettings.from(snapshot)
-        let claude: any ClaudeStageRunning
-        let researchRunner: any ResearchClaudeRunning
-        do {
-            let runner = ClaudeStageRunner(executable: try locator.locate(.claude), baseEnvironment: environment, searchPath: searchPath)
-            (claude, researchRunner) = (runner, runner)
-        } catch {
-            let unavailable = UnavailableClaudeRunner(error: error)
-            (claude, researchRunner) = (unavailable, unavailable)
-        }
-        let git = GitClient(locator: locator, environment: environment)
+        let runner = LiveClaudeRunner(locators: locators, baseEnvironment: environment, searchPath: searchPath)
+        let (claude, researchRunner): (any ClaudeStageRunning, any ResearchClaudeRunning) = (runner, runner)
+        let git = GitClient(locators: locators, environment: environment)
         let logs = TaskLogStore()
+        let ledger = DayTokenLedger(fileURL: Self.ledgerURL)
         let deps = EngineDependencies(
             claude: claude, tests: TestRunner(environment: environment),
-            graph: GraphifyClient(locator: locator, environment: environment), git: git,
-            worktrees: WorktreeManager(git: git), log: logs)
+            graph: GraphifyClient(locators: locators, environment: environment), git: git,
+            worktrees: WorktreeManager(git: git), log: logs, ledger: ledger,
+            store: tasksURL.map { ProjectStore(fileURL: $0) })
         let engine = WorkflowEngine(dependencies: deps, settings: engineSettings)
+        await engine.restore()
         let model = WorkflowViewModel(engine: engine, logs: logs, fixLoopCap: engineSettings.fixLoopCap)
         model.start()
-        return AppServices(model: model, research: makeResearch(runner: researchRunner, snapshot: snapshot))
+        let research = makeResearch(runner: researchRunner, snapshot: snapshot, ledger: ledger)
+        await research.pipeline.restore()
+        return AppServices(model: model, research: research)
+    }
+
+    /// The research day total: reads and feeds the same ledger as the Code engine, so both share one daily cap.
+    /// With no ledger the total is 0 and spend is dropped.
+    /// Complexity: O(1) time, O(1) space
+    static func researchDayHooks(
+        ledger: DayTokenLedger?
+    ) -> (used: @Sendable () async -> Int, add: @Sendable (Int) async -> Void) {
+        (used: { await ledger?.used() ?? 0 }, add: { await ledger?.add($0) })
     }
 
     /// Wires the research pipeline, view models and inbox. The store root comes from the settings
     /// (default `~/Documents/LF-AIWorkflow/Research`); the crawler uses the standard host policy.
     /// Complexity: O(1) time, O(1) space
-    static func makeResearch(runner: any ResearchClaudeRunning, snapshot: SettingsSnapshot) -> ResearchServices {
+    static func makeResearch(
+        runner: any ResearchClaudeRunning, snapshot: SettingsSnapshot, ledger: DayTokenLedger?) -> ResearchServices {
         let root = settings.researchRoot
         let safari: any SafariControlling = SafariBridge.bundled() ?? UnavailableSafari()
         let policy = HostPolicy.standard
@@ -101,11 +116,13 @@ enum AppComposition {
             renderer: WebPageRendering(renderer: WebPageRenderer(policy: policy)),
             robots: RobotsCache(fetcher: URLSessionRobotsFetcher(policy: policy), policy: policy),
             resolver: SystemHostResolver(), policy: policy, limiter: HostRateLimiter(clock: ContinuousClock()))
-        // TD-075: the day budget does not yet include Code-task tokens; research counts only its own spend.
+        let day = researchDayHooks(ledger: ledger)
         let deps = ResearchDependencies(
             safari: safari, crawler: crawler, runner: runner, store: ResearchStore(root: root),
-            now: { Date() }, dayTokensUsed: { 0 })
-        let pipeline = ResearchPipeline(deps: deps, settings: ResearchSettings(snapshot: snapshot))
+            now: { Date() }, dayTokensUsed: day.used, recordDayTokens: day.add)
+        let pipeline = ResearchPipeline(
+            deps: deps, settings: ResearchSettings(snapshot: snapshot),
+            persistence: researchURL.map { ResearchTaskStore(fileURL: $0) })
         let inbox = ResearchInbox(folder: root)
         let viewModel = ResearchViewModel(updates: pipeline.updates, controller: pipeline, inbox: inbox, hostPolicy: policy)
         viewModel.start()

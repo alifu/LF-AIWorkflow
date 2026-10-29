@@ -18,14 +18,18 @@ actor WorkflowEngine {
     /// Settings for tasks submitted from now on. Tasks already submitted keep their copy in `taskSettings`.
     private(set) var settings: EngineSettings
     /// Snapshot taken at submit; every stage of that task reads it, so a Settings change never reaches a running task.
-    private var taskSettings: [UUID: EngineSettings] = [:]
+    /// Tasks that skip Plan (`TaskDraft.startAtCode`); only read while the task is `queued`.
+    var startAtCode: Set<UUID> = []
+    /// Findings waiting for the next Fix stage (`sendToFix`); cleared once that stage ran.
+    var findingsForFix: [UUID: [Finding]] = [:]
+    var taskSettings: [UUID: EngineSettings] = [:]
     var tasks: [UUID: WorkflowTask] = [:]
     var budgets: [UUID: TokenBudget] = [:]
     var testCommands: [UUID: TestCommand] = [:]
     /// Fingerprint of each task's test entry point as the Code stage started (see `TestEntryGuard`).
     var entryFingerprints: [UUID: String] = [:]
-    /// Base revision for the review diff when no worktree is used.
-    var baseCommits: [UUID: String] = [:]
+    /// Hashes of plan documents already sent; honoured only when the stage resumes the Claude session (TD-027).
+    var sentDocumentHashes: [UUID: Set<UInt64>] = [:]
     private var drivers: [UUID: Task<Void, Never>] = [:]
 
     init(dependencies: EngineDependencies, settings: EngineSettings) {
@@ -49,7 +53,8 @@ actor WorkflowEngine {
             resumeState: nil, waitReason: nil, failure: nil, worktree: nil, sessionId: nil, planFile: nil,
             fixAttempts: 0, usageByStage: [:], lastErrors: nil, testCommandDisplay: nil, reviewFile: nil,
             createdAt: Date())
-        taskSettings[task.id] = settings
+        taskSettings[task.id] = draft.useWorktree.map { settings.with(useWorktree: $0) } ?? settings
+        if draft.startAtCode { startAtCode.insert(task.id) }
         publish(task)
         startDriving(task.id)
         return task.id
@@ -77,6 +82,16 @@ actor WorkflowEngine {
         startDriving(id)
     }
 
+    /// `failed -> the stage it failed in`; clears the failure and starts driving again (TD-043).
+    /// Complexity: O(1) time, O(1) space
+    func retry(_ id: UUID) throws(WorkflowError) {
+        let task = try lookup(id)
+        guard task.state == .failed else { throw .illegalTransition(from: task.state, to: task.retryState ?? .queued) }
+        taskSettings[id] = settings
+        publish(try TaskTransitions.move(task, to: task.retryState ?? .queued, fixLoopCap: settings.fixLoopCap))
+        startDriving(id)
+    }
+
     /// `awaitingInput(noTestCommand | testTimedOut) -> review`.
     /// Complexity: O(1) time, O(1) space
     func skipTests(_ id: UUID) throws(WorkflowError) {
@@ -91,10 +106,11 @@ actor WorkflowEngine {
 
     /// Idempotent. Cancels the running stage (Claude stream and test run) and publishes `cancelled` once.
     /// Complexity: O(1) time, O(1) space
-    func cancel(_ id: UUID) {
+    func cancel(_ id: UUID) async {
         drivers[id]?.cancel()
         drivers[id] = nil
-        apply(id, to: .cancelled)
+        let state = tasks[id]?.state
+        if apply(id, to: .cancelled), let state { await log("Cancelled", id, state) }
     }
 
     func task(_ id: UUID) -> WorkflowTask? { tasks[id] }
@@ -113,23 +129,51 @@ actor WorkflowEngine {
 
     // MARK: - State changes
 
+    /// Complexity: O(1) time, O(1) space
     func lookup(_ id: UUID) throws(WorkflowError) -> WorkflowTask {
         guard let task = tasks[id] else { throw .unknownTask(id) }
         return task
     }
 
+    /// Complexity: O(1) time, O(1) space (plus the store write and the yield)
     func publish(_ task: WorkflowTask) {
         tasks[task.id] = task
+        if task.state.isTerminal { taskSettings[task.id] = nil }
+        persist()
         continuation.yield(task)
     }
 
+    /// Loads persisted tasks once at launch (call before the first `submit`). Tasks that were mid-stage when
+    /// the app quit come back parked as `awaitingInput` (resume state = the interrupted stage); a task that never
+    /// left `queued` comes back failed. Nothing is driven: the user resumes. Ids already known are skipped.
+    /// Returns the number of tasks restored. Per-task budget raises and cached test commands are not persisted.
+    /// Complexity: O(n log n) time, O(n) space (n = persisted tasks)
+    @discardableResult
+    func restore() -> Int {
+        guard let store = deps.store else { return 0 }
+        let loaded = TaskRestore.interrupted(store.load(), now: Date()).filter { tasks[$0.id] == nil }
+        for task in loaded.sorted(by: { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }) {
+            tasks[task.id] = task
+            continuation.yield(task)
+        }
+        persist()
+        return loaded.count
+    }
+
+    /// Complexity: O(n) time, O(n) space (n = tasks, encoded by the store)
+    private func persist() {
+        deps.store?.save(Array(tasks.values))
+    }
+
     /// Publishes an edited copy without changing the state.
+    /// Complexity: O(1) time, O(1) space (plus the publish)
     func update(_ id: UUID, _ edit: (WorkflowTask) -> WorkflowTask) {
         guard let task = tasks[id] else { return }
         publish(edit(task))
     }
 
     /// Moves a non-terminal task through the guarded table; `edit` runs first. Returns false when not applied.
+    /// Complexity: O(1) time, O(1) space
     @discardableResult
     func apply(_ id: UUID, to state: TaskState, _ edit: (WorkflowTask) -> WorkflowTask = { $0 }) -> Bool {
         guard let task = tasks[id], !task.state.isTerminal else { return false }
@@ -142,22 +186,32 @@ actor WorkflowEngine {
         }
     }
 
-    func fail(_ id: UUID, _ reason: FailureReason) {
-        apply(id, to: .failed) { $0.with(failure: reason) }
+    /// Fails the task and logs the reason (TD-037).
+    /// Complexity: O(log line) time, O(1) space
+    func fail(_ id: UUID, _ reason: FailureReason) async {
+        let state = tasks[id]?.state
+        guard apply(id, to: .failed, { $0.with(failure: reason).with(retryState: state) }), let state else { return }
+        await log(TaskText.failureText(reason), id, state)
     }
 
-    func park(_ id: UUID, _ reason: WaitReason) {
-        apply(id, to: .awaitingInput) { $0.with(waiting: reason, resume: nil) }
+    /// Parks the task for input and logs why (TD-037).
+    /// Complexity: O(log line) time, O(1) space
+    func park(_ id: UUID, _ reason: WaitReason) async {
+        let state = tasks[id]?.state
+        guard apply(id, to: .awaitingInput, { $0.with(waiting: reason, resume: nil) }), let state else { return }
+        await log(TaskText.waitText(reason), id, state)
     }
 
     /// True while the task is still in `state` and nobody cancelled the driver.
+    /// Complexity: O(1) time, O(1) space
     func isCurrent(_ id: UUID, _ state: TaskState) -> Bool {
         !Task.isCancelled && tasks[id]?.state == state
     }
 
     // MARK: - Driver
 
-    private func startDriving(_ id: UUID) {
+    /// Complexity: O(1) time, O(1) space
+    func startDriving(_ id: UUID) {
         guard drivers[id] == nil else { return }
         drivers[id] = Task { await self.drive(id) }
     }

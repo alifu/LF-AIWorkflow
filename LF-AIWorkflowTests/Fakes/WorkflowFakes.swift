@@ -144,7 +144,7 @@ final class FakeTestRunner: TestRunning {
 }
 
 final class FakeGraph: GraphQuerying {
-    private struct State { var context = GraphContext.empty; var queries: [String] = []; var updates = 0 }
+    private struct State { var context = GraphContext.empty; var queries: [String] = []; var updates = 0; var roots: [URL] = []; var delay: Duration? = nil }
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(context: GraphContext = .empty) { state.withLock { $0.context = context } }
@@ -156,11 +156,18 @@ final class FakeGraph: GraphQuerying {
         state.withLock { $0.queries.append(q); return $0.context }
     }
 
-    func update(root: URL) async { state.withLock { $0.updates += 1 } }
+    var updateRoots: [URL] { state.withLock { $0.roots } }
+    /// Makes `update` take this long (cancellable sleep) so tests can exercise the engine's bounded wait.
+    func slowUpdate(_ delay: Duration) { state.withLock { $0.delay = delay } }
+
+    func update(root: URL) async {
+        let delay = state.withLock { state -> Duration? in state.updates += 1; state.roots.append(root); return state.delay }
+        if let delay { try? await Task.sleep(for: delay) }
+    }
 }
 
 final class FakeGit: GitWorking {
-    private struct State { var head = "abc123"; var diff = "diff --git a/a.swift b/a.swift\n+let a = 2\n"; var diffBases: [String] = []; var markFlags: [Bool] = []; var diffError: GitError? }
+    private struct State { var head = "abc123"; var snapshot = "snap456"; var diff = "diff --git a/a.swift b/a.swift\n+let a = 2\n"; var diffBases: [String] = []; var markFlags: [Bool] = []; var diffError: GitError? }
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     var diffBases: [String] { state.withLock { $0.diffBases } }
@@ -168,6 +175,8 @@ final class FakeGit: GitWorking {
     func failDiff(with error: GitError) { state.withLock { $0.diffError = error } }
 
     func headCommit(in: URL) async throws(GitError) -> String { state.withLock { $0.head } }
+
+    func snapshotCommit(in: URL) async throws(GitError) -> String { state.withLock { $0.snapshot } }
 
     func reviewDiff(in: URL, base: String, markNewFiles: Bool) async throws(GitError) -> String {
         let (diff, error) = state.withLock { state -> (String, GitError?) in
@@ -181,7 +190,7 @@ final class FakeGit: GitWorking {
 }
 
 final class FakeWorktrees: WorktreeProviding {
-    private struct State { var error: GitError?; var created: [(URL, String)] = [] }
+    private struct State { var error: GitError?; var created: [(URL, String)] = []; var removed: [(URL, Bool)] = []; var removeError: GitError? }
     private let state = OSAllocatedUnfairLock(initialState: State())
     let directory: URL
 
@@ -200,7 +209,14 @@ final class FakeWorktrees: WorktreeProviding {
         return Worktree(path: path, branch: "ai/\(slug)", baseCommit: "base123")
     }
 
-    func remove(_ wt: Worktree, repo: URL, force: Bool) async throws(GitError) {}
+    var removed: [(path: URL, force: Bool)] { state.withLock { $0.removed.map { (path: $0.0, force: $0.1) } } }
+
+    func failRemoval(with error: GitError) { state.withLock { $0.removeError = error } }
+
+    func remove(_ wt: Worktree, repo: URL, force: Bool) async throws(GitError) {
+        if let error = state.withLock({ $0.removeError }) { throw error }
+        state.withLock { $0.removed.append((wt.path, force)) }
+    }
 }
 
 /// Records every line the engine logs.

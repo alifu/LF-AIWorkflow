@@ -71,27 +71,56 @@ nonisolated enum HalftoneRasterizer {
     }
 }
 
-/// Renders each distinct `HalftoneKey` once and reuses the image. Main-actor isolated, so no locks are needed.
+/// Renders each `HalftoneKey` once and reuses the image while it is among the `capacity` most recently used.
+/// Older images are evicted (least recently used first), so memory stays bounded. Main-actor isolated, so no locks are needed.
 @MainActor final class HalftoneImageCache {
     static let shared = HalftoneImageCache()
+    /// Enough for every theme's dot colors at the scales in use, with room to spare.
+    static let defaultCapacity = 32
 
     private(set) var renderCount = 0
     private var images: [HalftoneKey: CGImage] = [:]
+    /// Cached keys ordered from least to most recently used.
+    private var recency: [HalftoneKey] = []
+    private let capacity: Int
     private let render: @MainActor (HalftoneKey) -> CGImage?
 
     var entryCount: Int { images.count }
 
-    init(render: @escaping @MainActor (HalftoneKey) -> CGImage? = HalftoneRasterizer.render) {
+    init(capacity: Int = HalftoneImageCache.defaultCapacity,
+         render: @escaping @MainActor (HalftoneKey) -> CGImage? = HalftoneRasterizer.render) {
+        self.capacity = max(1, capacity)
         self.render = render
     }
 
-    /// Returns the cached image for `key`, rendering it on the first request only.
-    /// Complexity: O(1) expected time per hit; O(r) time on a miss (r = render cost); O(n) space (n = distinct keys)
+    /// Returns the cached image for `key`, rendering it on a miss and evicting the least recently used image when full.
+    /// Complexity: O(c) time per call (c = capacity, for the recency update); O(r) extra on a miss (r = render cost); O(c) space
     func image(for key: HalftoneKey) -> CGImage? {
-        if let cached = images[key] { return cached }
+        if let cached = images[key] {
+            markUsed(key)
+            return cached
+        }
         guard let image = render(key) else { return nil }
         renderCount += 1
         images[key] = image
+        recency.append(key)
+        evictOverflow()
         return image
+    }
+
+    /// Moves `key` to the most-recently-used end.
+    /// Complexity: O(c) time, O(1) space (c = capacity)
+    private func markUsed(_ key: HalftoneKey) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
+    }
+
+    /// Drops the oldest images until the cache is back within `capacity`.
+    /// Complexity: O(e * c) time, O(1) extra space (e = images evicted, at most one per insert)
+    private func evictOverflow() {
+        while images.count > capacity, !recency.isEmpty {
+            let oldest = recency.removeFirst()
+            images[oldest] = nil
+        }
     }
 }

@@ -25,6 +25,12 @@ final class ToolsSettingsModel {
         let problem: String?
         var version: VersionState = .unchecked
 
+        /// TD-003: set for Claude when its reported version differs from the one the parser was tested against.
+        var versionWarning: String? {
+            guard tool == .claude, case .found(let line) = version else { return nil }
+            return CliVersionCheck.warning(forVersionLine: line)
+        }
+
         var id: Tool { tool }
     }
 
@@ -51,6 +57,14 @@ final class ToolsSettingsModel {
         case .failure(let error):
             Row(tool: tool, path: nil, problem: error.errorDescription ?? "\(tool.displayName) not found.")
         }
+    }
+
+    /// Every override, typed or picked in the file panel, passes through `ToolPathValidator` before it is stored.
+    /// Complexity: O(n + p) time, O(n) space (n = path length, p = path components); `kind` adds one file probe
+    static func validatedOverride(
+        _ raw: String, resolve: (String) -> String = ToolPathValidator.resolvingSymlinks(_:),
+        kind: (String) -> ToolFileKind) -> Result<String, ToolPathError> {
+        ToolPathValidator.validate(raw, resolve: resolve, kind: kind)
     }
 
     /// Re-runs detection for every tool, using the override paths the user chose. Clears earlier version results.

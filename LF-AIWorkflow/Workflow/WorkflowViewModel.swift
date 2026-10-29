@@ -6,6 +6,7 @@
 import AppKit
 import Foundation
 import Observation
+import os
 
 /// Bridge between the engine actor and the SwiftUI views. The only consumer of `engine.updates` and
 /// `logs.changes`; keeps a pure `TaskBoard` and publishes at most one UI update per coalescing window.
@@ -30,6 +31,7 @@ final class WorkflowViewModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let coalesceInterval: Duration
     @ObservationIgnored private let fixLoopCap: Int
+    @ObservationIgnored private let reviewLoader: any ReviewLoading
     @ObservationIgnored private var board = TaskBoard()
     @ObservationIgnored private var windowTask: Task<Void, Never>?
     @ObservationIgnored private var hasPendingUpdate = false
@@ -38,13 +40,14 @@ final class WorkflowViewModel {
 
     init(engine: WorkflowEngine, logs: TaskLogStore, clock: any Clock<Duration> = ContinuousClock(),
          now: @escaping @Sendable () -> Date = { Date() }, coalesceInterval: Duration = .milliseconds(100),
-         fixLoopCap: Int = EngineSettings.default.fixLoopCap) {
+         fixLoopCap: Int = EngineSettings.default.fixLoopCap, reviewLoader: any ReviewLoading = FileReviewLoader()) {
         self.engine = engine
         self.logs = logs
         self.clock = clock
         self.now = now
         self.coalesceInterval = coalesceInterval
         self.fixLoopCap = fixLoopCap
+        self.reviewLoader = reviewLoader
     }
 
     // MARK: - Lifecycle
@@ -55,6 +58,8 @@ final class WorkflowViewModel {
     }
 
     /// Starts consuming the engine and log streams. Idempotent; call before the first `submit`.
+    private static let logReloadInterval = Duration.milliseconds(100)
+
     func start() {
         guard updatesTask == nil else { return }
         let updates = engine.updates
@@ -69,6 +74,7 @@ final class WorkflowViewModel {
             for await _ in changes {
                 guard let self else { return }
                 self.logRevision &+= 1
+                try? await Task.sleep(for: Self.logReloadInterval)  // throttle: at most ~10 reloads/s (TD-050)
             }
         }
     }
@@ -88,13 +94,37 @@ final class WorkflowViewModel {
     /// window are folded into one publication when it closes (at most 1 / `coalesceInterval` UI updates per second).
     /// Complexity: O(n log n) time per publication (n = tasks), O(n) space
     func receive(_ task: WorkflowTask) {
-        if let message = board.apply(task, now: now()) { peek = message }
+        if let message = board.apply(task, now: now()) {
+            peek = message
+        } else if board.awaitsReview(task.id), let file = task.reviewFile {
+            loadReviewPeek(taskID: task.id, file: file)
+        }
         if windowTask == nil {
             publish()
             openWindow()
         } else {
             hasPendingUpdate = true
         }
+    }
+
+    /// Reads the saved review off the main actor, then posts the done peek with its finding count (TD-049).
+    /// An unreadable review is logged and the peek stays plain "done".
+    /// Complexity: O(review size) time, O(review size) space
+    private func loadReviewPeek(taskID: UUID, file: URL) {
+        let loader = reviewLoader
+        Task { [weak self] in
+            var findings: Int?
+            do {
+                findings = try await loader.load(file).findings.count
+            } catch {
+                AppLog.workflow.error("saved review could not be read: \(error.localizedDescription, privacy: .public)")
+            }
+            self?.finishReviewPeek(taskID: taskID, findings: findings)
+        }
+    }
+
+    private func finishReviewPeek(taskID: UUID, findings: Int?) {
+        if let message = board.reviewLoaded(for: taskID, findings: findings) { peek = message }
     }
 
     /// Shows a short notice in the peek bubble (not tied to a task).
@@ -129,8 +159,9 @@ final class WorkflowViewModel {
         _ = await engine.submit(draft)
     }
 
-    func approve(_ id: UUID) async {
-        do { try await engine.approvePlan(id); lastError = nil } catch { lastError = Self.describe(error) }
+    /// Returns false (and sets `lastError`) when the engine refuses the approval.
+    func approve(_ id: UUID) async -> Bool {
+        do { try await engine.approvePlan(id); lastError = nil; return true } catch { lastError = Self.describe(error); return false }
     }
 
     func cancel(_ id: UUID) async {
@@ -141,8 +172,20 @@ final class WorkflowViewModel {
         do { try await engine.resume(id, raisingBudgetBy: tokens); lastError = nil } catch { lastError = Self.describe(error) }
     }
 
+    func retry(_ id: UUID) async {
+        do { try await engine.retry(id); lastError = nil } catch { lastError = Self.describe(error) }
+    }
+
     func skipTests(_ id: UUID) async {
         do { try await engine.skipTests(id); lastError = nil } catch { lastError = Self.describe(error) }
+    }
+
+    func sendToFix(_ id: UUID, findings: [Finding]) async {
+        do { try await engine.sendToFix(id, findings: findings); lastError = nil } catch { lastError = Self.describe(error) }
+    }
+
+    func removeWorktree(_ id: UUID) async {
+        do { try await engine.removeWorktree(id); lastError = nil } catch { lastError = Self.describe(error) }
     }
 
     /// Hides finished rows (view model only; the engine keeps the tasks).
@@ -160,7 +203,7 @@ final class WorkflowViewModel {
     }
 
     func log(for id: UUID) async -> [TaskLogLine] {
-        await logs.lines(for: id)
+        await logs.tail(for: id, limit: TerminalText.defaultTail).lines
     }
 
     func task(_ id: UUID) -> WorkflowTask? { board.task(id) }
@@ -171,6 +214,10 @@ final class WorkflowViewModel {
         case .unknownTask: "The task no longer exists."
         case .fixLoopCapReached: "The fix loop limit was reached."
         case .invalidTestTarget(let target): "Invalid test target: \(target)"
+        case .noFindings: "There are no findings to send to Fix."
+        case .taskActive: "Finish or cancel the task before removing its worktree."
+        case .noWorktree: "This task has no worktree."
+        case .worktreeRemovalFailed(let reason): "Cannot remove the worktree: \(reason)"
         }
     }
 }

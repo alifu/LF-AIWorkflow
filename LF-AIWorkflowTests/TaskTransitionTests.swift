@@ -10,7 +10,7 @@ import Foundation
 struct TaskTransitionTests {
     private static let legal: Set<[TaskState]> = {
         var edges: Set<[TaskState]> = [
-            [.queued, .plan], [.plan, .awaitingApproval], [.awaitingApproval, .code], [.code, .test],
+            [.queued, .plan], [.queued, .code], [.done, .fix], [.plan, .awaitingApproval], [.awaitingApproval, .code], [.code, .test],
             [.test, .review], [.test, .fix], [.fix, .test], [.review, .done],
         ]
         let nonTerminal: [TaskState] = [.queued, .plan, .awaitingApproval, .code, .test, .fix, .review, .awaitingInput]
@@ -28,7 +28,7 @@ struct TaskTransitionTests {
     }
 
     @Test func tableMatchesLegalEdgesForTaskWithoutResume() {
-        for from in TaskState.allCases where from != .awaitingInput {
+        for from in TaskState.allCases where from != .awaitingInput && from != .failed {
             for to in TaskState.allCases {
                 let ok = (try? TaskTransitions.move(task(in: from), to: to, fixLoopCap: 3)) != nil
                 #expect(ok == Self.legal.contains([from, to]), "\(from) -> \(to)")
@@ -46,10 +46,11 @@ struct TaskTransitionTests {
     @Test func canMoveAgreesWithTableForNonResumeStates() {
         for from in TaskState.allCases where from != .awaitingInput {
             for to in TaskState.allCases {
-                #expect(TaskTransitions.canMove(from: from, to: to) == Self.legal.contains([from, to]))
+                let retry = from == .failed && TaskTransitions.retryTargets.contains(to)
+                #expect(TaskTransitions.canMove(from: from, to: to) == (Self.legal.contains([from, to]) || retry))
             }
         }
-        #expect(TaskTransitions.table[.done] == [])
+        #expect(TaskTransitions.table[.done] == [.fix])
     }
 
     @Test func illegalTransitionError() {
@@ -115,5 +116,44 @@ struct TaskTransitionTests {
         let moved = try TaskTransitions.move(original, to: .plan, fixLoopCap: 3)
         #expect(original.state == .queued)
         #expect(moved.state == .plan)
+    }
+
+    // MARK: - Retry (TD-043)
+
+    private func failed(at stage: TaskState?, attempts: Int = 0, reason: FailureReason? = .claudeError("x")) -> WorkflowTask {
+        task(in: .failed).with(failure: reason).with(retryState: stage).with(fixAttempts: attempts)
+            .with(finishedAt: Date(timeIntervalSince1970: 5))
+    }
+
+    @Test func failedTaskRetriesOnlyIntoTheStageItFailedIn() throws {
+        for stage in [TaskState.queued, .plan, .code, .test, .fix, .review] {
+            for to in TaskState.allCases {
+                let ok = (try? TaskTransitions.move(failed(at: stage), to: to, fixLoopCap: 3)) != nil
+                #expect(ok == (to == stage), "failed(\(stage)) -> \(to)")
+            }
+        }
+    }
+
+    @Test func retryClearsFailureAndFinishedAt() throws {
+        let moved = try TaskTransitions.move(failed(at: .code), to: .code, fixLoopCap: 3)
+        #expect(moved.state == .code)
+        #expect(moved.failure == nil)
+        #expect(moved.retryState == nil)
+        #expect(moved.finishedAt == nil)
+    }
+
+    @Test func retryWithoutRecordedStageGoesBackToQueuedAndNeedsAFailure() throws {
+        #expect(try TaskTransitions.move(failed(at: nil), to: .queued, fixLoopCap: 3).state == .queued)
+        #expect(throws: WorkflowError.self) {
+            _ = try TaskTransitions.move(failed(at: .code, reason: nil), to: .code, fixLoopCap: 3)
+        }
+    }
+
+    @Test func retryAfterFixLoopExhaustionResetsAttempts() throws {
+        let moved = try TaskTransitions.move(failed(at: .test, attempts: 2, reason: .fixLoopExhausted(attempts: 2)),
+                                             to: .test, fixLoopCap: 2)
+        #expect(moved.fixAttempts == 0)
+        let other = try TaskTransitions.move(failed(at: .test, attempts: 1), to: .test, fixLoopCap: 2)
+        #expect(other.fixAttempts == 1)
     }
 }

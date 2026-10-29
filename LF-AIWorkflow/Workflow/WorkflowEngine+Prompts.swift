@@ -30,6 +30,7 @@ extension WorkflowEngine {
         var graph = GraphContext.empty
         var diff: String?
         var checklists: [String] = []
+        let resumes = task.sessionId != nil && effectiveSettings(for: task.id).resumeSessionFor.contains(stage)
         switch stage {
         case .plan: break
         case .code:
@@ -47,28 +48,25 @@ extension WorkflowEngine {
             checklists = Self.readChecklists(root: task.projectRoot, rulesMaxTokens: budget.rulesMaxTokens)
         }
         let input = StageContextInput(
-            stage: stage, task: task, documents: stage == .plan ? task.documents.map(Self.document) : [],
-            sentHashes: [], graph: graph, diff: diff, errors: task.lastErrors, checklists: checklists,
-            findingsForFix: [])
-        return ContextBuilder.build(input, budget: budget)
+            stage: stage, task: task, documents: stage == .plan ? task.documents.map { PlanDocumentReader.read($0, inlineMaxTokens: budget.inlineMaxTokens) } : [],
+            sentHashes: resumes ? sentDocumentHashes[task.id] ?? [] : [], graph: graph, diff: diff, errors: task.lastErrors, checklists: checklists,
+            findingsForFix: stage == .fix ? findingsForFix[task.id] ?? [] : [])
+        let built = ContextBuilder.build(input, budget: budget)
+        if stage == .plan { sentDocumentHashes[task.id] = built.sentHashes }
+        return built
     }
 
     private func diffForReview(_ task: WorkflowTask) async -> String? {
-        guard let base = task.worktree?.baseCommit ?? baseCommits[task.id] else {
-            fail(task.id, .claudeError("no base revision to diff against")); return nil
+        guard let base = task.worktree?.baseCommit ?? task.baseCommit else {
+            await fail(task.id, .claudeError("no base revision to diff against")); return nil
         }
         do {
             return try await deps.git.reviewDiff(in: task.workingDirectory, base: base,
                                                 markNewFiles: task.worktree != nil)
         } catch {
-            if isCurrent(task.id, .review) { fail(task.id, .claudeError("git diff failed: \(Self.describe(error))")) }
+            if isCurrent(task.id, .review) { await fail(task.id, .claudeError("git diff failed: \(Self.describe(error))")) }
             return nil
         }
-    }
-
-    private static func document(_ url: URL) -> ContextDocument {
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value ?? 0
-        return ContextDocument(url: url, byteSize: size, hash: nil, text: nil)
     }
 
     private static func readChecklists(root: URL, rulesMaxTokens: Int) -> [String] {

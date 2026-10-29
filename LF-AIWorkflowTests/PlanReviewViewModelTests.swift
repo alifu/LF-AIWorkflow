@@ -27,7 +27,8 @@ final class SpyPasteboard: Pasteboarding {
 final class SpyDecider: TaskDeciding {
     private(set) var approved: [UUID] = []
     private(set) var cancelled: [UUID] = []
-    func approve(_ id: UUID) async { approved.append(id) }
+    var approveSucceeds = true
+    func approve(_ id: UUID) async -> Bool { approved.append(id); return approveSucceeds }
     func cancel(_ id: UUID) async { cancelled.append(id) }
 }
 
@@ -64,6 +65,17 @@ private let planDoc = PlanDocument(path: planURL, steps: ["A", "B", "C"], estima
                       editor: SpyEditor = SpyEditor()) -> (ReviewViewModel, SpyEditor) {
         let task = PreviewFixtures.task("Login", state: .done, reviewFile: review, worktree: true)
         return (ReviewViewModel(task: task, loader: StubReviewLoader(report: report), opener: editor), editor)
+    }
+
+    @Test func sendHighToFixHandsOverOnlyCriticalAndHighFindings() async {
+        var sent: [Finding] = []
+        let task = PreviewFixtures.task("Login", state: .done, reviewFile: reviewURL, worktree: true)
+        let vm = ReviewViewModel(task: task, loader: StubReviewLoader(report: ReviewReport(findings: finds, unparsedLineCount: 0)),
+                                 opener: SpyEditor(), sendToFix: { sent = $0 })
+        await vm.load()
+        #expect(vm.canSendHighToFix)
+        vm.sendHighToFix()
+        #expect(sent.map(\.issue) == ["h2", "h"])   // sorted: A.kt before Theme.kt
     }
 
     @Test func loadsFindingsSortedWithCounts() async {
@@ -118,7 +130,7 @@ private let planDoc = PlanDocument(path: planURL, steps: ["A", "B", "C"], estima
         #expect(editor.revealed[0].path.contains(".wt"))
     }
 
-    @Test func sendHighToFixIsDisabled() {
+    @Test func sendHighToFixIsDisabledWithoutFindings() {
         let (vm, _) = make(report: nil)
         #expect(!vm.canSendHighToFix)
     }
@@ -156,6 +168,17 @@ private let planDoc = PlanDocument(path: planURL, steps: ["A", "B", "C"], estima
         await vm.cancelTask()
         #expect(decider.approved == [task.id])
         #expect(decider.cancelled.isEmpty)
+        #expect(!vm.canAct)
+    }
+
+    @Test func failedApproveReEnablesTheDecision() async {
+        let (vm, _, decider, task) = make()
+        decider.approveSucceeds = false
+        await vm.approve()
+        #expect(vm.canAct)
+        decider.approveSucceeds = true
+        await vm.approve()
+        #expect(decider.approved == [task.id, task.id])
         #expect(!vm.canAct)
     }
 

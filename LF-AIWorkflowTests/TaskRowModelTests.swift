@@ -147,6 +147,21 @@ import Foundation
         #expect(!row(PreviewFixtures.task(state: .code)).actions.contains(.resume))
     }
 
+    @Test func removeWorktreeOnlyForDoneOrCancelledTasksWithAWorktree() {
+        #expect(row(PreviewFixtures.task(state: .done, worktree: true)).actions.contains(.removeWorktree))
+        #expect(row(PreviewFixtures.task(state: .cancelled, worktree: true)).actions.contains(.removeWorktree))
+        #expect(!row(PreviewFixtures.task(state: .done)).actions.contains(.removeWorktree))
+        #expect(!row(PreviewFixtures.task(state: .code, worktree: true)).actions.contains(.removeWorktree))
+        #expect(!row(PreviewFixtures.task(state: .failed, worktree: true)).actions.contains(.removeWorktree))
+    }
+
+    @Test func retryOnlyOnFailedTasks() {
+        #expect(row(PreviewFixtures.task(state: .failed)).actions.contains(.retry))
+        #expect(!row(PreviewFixtures.task(state: .cancelled)).actions.contains(.retry))
+        #expect(!row(PreviewFixtures.task(state: .done)).actions.contains(.retry))
+        #expect(!row(PreviewFixtures.task(state: .code)).actions.contains(.retry))
+    }
+
     @Test func attentionAndRunningFlags() {
         #expect(row(PreviewFixtures.task(state: .awaitingApproval)).needsAttention)
         #expect(row(PreviewFixtures.task(state: .failed)).needsAttention)

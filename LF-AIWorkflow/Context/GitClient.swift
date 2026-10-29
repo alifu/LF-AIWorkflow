@@ -8,10 +8,11 @@ import Foundation
 /// Thin wrapper over the `git` CLI. Every call goes through `CommandRunner` (no shell, argv only).
 nonisolated struct GitClient: GitWorking {
     /// Lockfiles, generated and build output the Review stage never needs (token rule: filtered diff).
+    /// `.claude/plans/**` holds the Plan stage's file (TD-109): it is task input, not work to review.
     static let reviewExcludes: [String] = [
         "**/*.lock", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Package.resolved",
         "**/Podfile.lock", "**/gradle.lockfile", "**/build/**", "**/DerivedData/**", "**/*.generated.*",
-        "**/*.pb.swift", "design/raw/**", "graphify-out/**",
+        "**/*.pb.swift", "design/raw/**", "graphify-out/**", ".claude/plans/**",
     ].map { ":(exclude,glob)" + $0 }
 
     /// Untracked or changed secrets must never reach the Review prompt.
@@ -29,7 +30,7 @@ nonisolated struct GitClient: GitWorking {
     private static let baseOptions = ["--no-pager", "-c", "core.quotepath=off", "-c", "color.ui=false",
                                     "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external="]
 
-    private let locator: ToolLocator
+    private let locators: ToolLocatorProvider
     private let timeout: Duration
     private let environment: [String: String]
     private let untrackedByteLimit: Int
@@ -40,8 +41,16 @@ nonisolated struct GitClient: GitWorking {
     init(locator: ToolLocator, timeout: Duration = .seconds(30),
          environment: [String: String] = ProcessInfo.processInfo.environment,
          untrackedByteLimit: Int = GitClient.defaultUntrackedByteLimit) {
+        self.init(locators: ToolLocatorProvider(fixed: locator), timeout: timeout,
+                  environment: environment, untrackedByteLimit: untrackedByteLimit)
+    }
+
+    /// The locator is asked per command, so a changed `git` path applies to the next call.
+    init(locators: ToolLocatorProvider, timeout: Duration = .seconds(30),
+         environment: [String: String] = ProcessInfo.processInfo.environment,
+         untrackedByteLimit: Int = GitClient.defaultUntrackedByteLimit) {
         self.untrackedByteLimit = untrackedByteLimit
-        self.locator = locator
+        self.locators = locators
         self.timeout = timeout
         self.environment = Self.scrubbed(environment)
     }
@@ -65,7 +74,7 @@ nonisolated struct GitClient: GitWorking {
     /// Complexity: O(n) time in output bytes, O(n) space
     private func run(_ args: [String], in dir: URL, okStatuses: Set<Int32>) async throws(GitError) -> String {
         let executable: URL
-        do { executable = try locator.locate(.git) } catch { throw .gitNotFound }
+        do { executable = try await locators.current().locate(.git) } catch { throw .gitNotFound }
         let invocation = ProcessInvocation(executable: executable, arguments: Self.baseOptions + args,
                                            environment: environment, workingDirectory: dir, stdin: Data())
         let result: CommandResult
@@ -89,6 +98,17 @@ nonisolated struct GitClient: GitWorking {
     /// Complexity: O(1) time, O(1) space
     func headCommit(in dir: URL) async throws(GitError) -> String {
         try await run(["rev-parse", "HEAD"], in: dir).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `git stash create` records tracked uncommitted work as a dangling commit without touching the tree, index
+    /// or stash list; it prints nothing when the tree is clean, then HEAD is the base. Untracked files are not
+    /// captured (see TD-117). A failure (for example no committer identity) falls back to HEAD.
+    /// Complexity: O(changed files) time, O(1) space
+    func snapshotCommit(in dir: URL) async throws(GitError) -> String {
+        let head = try await headCommit(in: dir)
+        let created = (try? await run(["stash", "create"], in: dir))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let created, created.count == 40, created.allSatisfy(\.isHexDigit) else { return head }
+        return created
     }
 
     /// Complexity: O(1) time, O(1) space

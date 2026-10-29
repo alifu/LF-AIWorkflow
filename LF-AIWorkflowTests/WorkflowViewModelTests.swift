@@ -11,9 +11,10 @@ import Foundation
 @Suite(.timeLimit(.minutes(2)))
 struct WorkflowViewModelTests {
     private func makeModel(clock: any Clock<Duration> = ContinuousClock(), harness: Harness? = nil,
-                           logs: TaskLogStore = TaskLogStore()) throws -> (WorkflowViewModel, Harness) {
+                           logs: TaskLogStore = TaskLogStore(),
+                           reviewLoader: any ReviewLoading = StubReviewLoader(report: nil)) throws -> (WorkflowViewModel, Harness) {
         let h = try harness ?? Harness(recording: false)
-        return (WorkflowViewModel(engine: h.engine, logs: logs, clock: clock), h)
+        return (WorkflowViewModel(engine: h.engine, logs: logs, clock: clock, reviewLoader: reviewLoader), h)
     }
 
     private func settle() async { for _ in 0..<8 { await Task.yield() } }
@@ -72,6 +73,21 @@ struct WorkflowViewModelTests {
         #expect(model.peek == nil)
     }
 
+    @Test func donePeekSaysHowManyFindingsTheSavedReviewHas() async throws {
+        let report = ReviewReport.parse("[HIGH] a.swift:1 - one\n[LOW] b.swift:2 - two")
+        let (model, _) = try makeModel(clock: ManualClock(), reviewLoader: StubReviewLoader(report: report))
+        model.receive(PreviewFixtures.task("Login", state: .done, reviewFile: URL(fileURLWithPath: "/tmp/MyApp/r.md")))
+        #expect(await eventually { model.peek?.kind == .done })
+        #expect(model.peek?.text == "Login: done, \(report.findings.count) findings")
+    }
+
+    @Test func donePeekStaysPlainWhenTheReviewCannotBeLoaded() async throws {
+        let (model, _) = try makeModel(clock: ManualClock(), reviewLoader: StubReviewLoader(report: nil))
+        model.receive(PreviewFixtures.task("Login", state: .done, reviewFile: URL(fileURLWithPath: "/tmp/MyApp/r.md")))
+        #expect(await eventually { model.peek?.kind == .done })
+        #expect(model.peek?.text == "Login: done")
+    }
+
     @Test func summaryAndClearDoneFollowTheTasks() throws {
         let (model, _) = try makeModel(clock: ManualClock())
         model.receive(PreviewFixtures.task("a", state: .code))
@@ -91,17 +107,17 @@ struct WorkflowViewModelTests {
         #expect(await eventually { model.rows.first?.state == .awaitingApproval })
         #expect(model.peek?.kind == .planReady)
         let id = try #require(model.rows.first?.id)
-        await model.approve(id)
+        _ = await model.approve(id)
         #expect(await eventually { model.rows.first?.state == .done })
         #expect(model.lastError == nil)
-        #expect(model.peek?.kind == .done)
+        #expect(await eventually { model.peek?.kind == .done })
         #expect(model.todayTokens >= 0)
         model.stop()
     }
 
     @Test func failedActionsSurfaceAnError() async throws {
         let (model, _) = try makeModel()
-        await model.approve(UUID())
+        #expect(await model.approve(UUID()) == false)
         #expect(model.lastError != nil)
     }
 

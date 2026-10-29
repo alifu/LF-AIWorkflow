@@ -48,17 +48,37 @@ nonisolated struct TaskBoard: Sendable {
     private var hidden: Set<UUID> = []
     private var lastState: [UUID: TaskState] = [:]
     private var peekCount = 0
+    /// Done tasks whose saved review must be read before their done peek can say how many findings it has.
+    private var awaitingReview: Set<UUID> = []
 
-    /// Records a snapshot; returns a peek message when the task just ENTERED an attention state.
+    /// Records a snapshot; returns a peek message when the task just ENTERED an attention state. A task that just
+    /// finished with a saved review returns nil instead: call `awaitsReview` and then `reviewLoaded` (TD-049).
     /// Complexity: O(1) time, O(1) space
     mutating func apply(_ task: WorkflowTask, now: Date) -> PeekMessage? {
         let previous = lastState[task.id]
         tasks[task.id] = task
         lastState[task.id] = task.state
-        if task.state.isTerminal, finishedAt[task.id] == nil { finishedAt[task.id] = now }
+        if task.state.isTerminal, finishedAt[task.id] == nil { finishedAt[task.id] = task.finishedAt ?? now }
         guard showAlerts, previous != task.state, let kind = Self.peekKind(task.state) else { return nil }
+        if kind == .done, task.reviewFile != nil {
+            awaitingReview.insert(task.id)
+            return nil
+        }
         peekCount += 1
         return PeekMessage(taskID: task.id, text: "\(task.title): \(Self.peekText(task, kind))", kind: kind, sequence: peekCount)
+    }
+
+    /// True between a task's done transition (with a saved review) and its `reviewLoaded` call.
+    /// Complexity: O(1) time, O(1) space
+    func awaitsReview(_ id: UUID) -> Bool { awaitingReview.contains(id) }
+
+    /// Completes a deferred done peek. `findings` is nil when the review could not be read; the peek then stays plain "done".
+    /// Complexity: O(1) time, O(1) space
+    mutating func reviewLoaded(for id: UUID, findings: Int?) -> PeekMessage? {
+        guard awaitingReview.remove(id) != nil, let task = tasks[id] else { return nil }
+        let outcome = findings.map { "done, \($0) \($0 == 1 ? "finding" : "findings")" } ?? "done"
+        peekCount += 1
+        return PeekMessage(taskID: id, text: "\(task.title): \(outcome)", kind: .done, sequence: peekCount)
     }
 
     /// A plain notice that belongs to no task; shares the sequence counter so repeats still differ.

@@ -28,7 +28,7 @@ struct WorktreeManagerTests {
     @Test(arguments: [
         ("Add Login Screen", "add-login-screen"),
         ("  --Fix: the bug!!  ", "fix-the-bug"),
-        ("Café ünïcode", "caf-n-code"),
+        ("Café ünïcode", "cafe-unicode"),
         ("🚀🚀 ship it 🚀", "ship-it"),
         ("a///b___c", "a-b-c"),
         ("!!!???", "task"),

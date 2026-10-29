@@ -15,36 +15,38 @@ nonisolated enum ClaudeEventDecoder {
     private static let space = UInt8(ascii: " ")
     private static let openBrace = UInt8(ascii: "{")
 
-    /// Nil for blank lines. Never throws.
+    /// Every event on one line, in order: a user line can carry several `tool_result` blocks, one event each.
+    /// Empty for blank lines. Never throws.
     /// Complexity: O(n) time, O(n) space (n = line length)
-    static func decode(_ line: Data) -> ClaudeEvent? {
+    static func decode(_ line: Data) -> [ClaudeEvent] {
         let trimmed = trim(line)
-        guard let first = trimmed.first else { return nil }
-        guard first == openBrace else { return unparsed(trimmed) }
+        guard let first = trimmed.first else { return [] }
+        guard first == openBrace else { return [unparsed(trimmed)] }
         guard let type = NDJSONFramer.field("type", in: trimmed) else {
-            return isJSONObject(trimmed) ? .unknown(type: "") : unparsed(trimmed)
+            return [isJSONObject(trimmed) ? .unknown(type: "") : unparsed(trimmed)]
         }
+        if type == "user" { return userEvents(trimmed) }
+        return [event(type: type, line: trimmed)]
+    }
+
+    /// Complexity: O(n) time, O(n) space (n = line length)
+    private static func event(type: String, line: Data) -> ClaudeEvent {
         let decoder = JSONDecoder()
         switch type {
         case "system":
-            guard NDJSONFramer.field("subtype", in: trimmed) == "init" else {
-                return .unknown(type: "system/" + (NDJSONFramer.field("subtype", in: trimmed) ?? ""))
+            guard NDJSONFramer.field("subtype", in: line) == "init" else {
+                return .unknown(type: "system/" + (NDJSONFramer.field("subtype", in: line) ?? ""))
             }
-            guard let dto = try? decoder.decode(InitDTO.self, from: trimmed), let sid = dto.session_id else {
-                return unparsed(trimmed)
+            guard let dto = try? decoder.decode(InitDTO.self, from: line), let sid = dto.session_id else {
+                return unparsed(line)
             }
             return .initialized(SessionInit(sessionId: sid, model: dto.model, cwd: dto.cwd,
                                             tools: dto.tools ?? [], cliVersion: dto.claude_code_version))
         case "assistant":
-            guard let dto = try? decoder.decode(AssistantLineDTO.self, from: trimmed) else { return unparsed(trimmed) }
+            guard let dto = try? decoder.decode(AssistantLineDTO.self, from: line) else { return unparsed(line) }
             return .assistant(assistantMessage(dto.message))
-        case "user":
-            guard let dto = try? decoder.decode(UserLineDTO.self, from: trimmed) else { return unparsed(trimmed) }
-            guard let block = dto.message?.content?.first(where: { $0.type == "tool_result" }),
-                  let id = block.tool_use_id else { return .unknown(type: "user") }
-            return .toolResult(ToolResult(toolUseId: id, isError: block.is_error ?? false))
         case "result":
-            guard let dto = try? decoder.decode(ResultDTO.self, from: trimmed) else { return unparsed(trimmed) }
+            guard let dto = try? decoder.decode(ResultDTO.self, from: line) else { return unparsed(line) }
             return .result(RunResult(
                 subtype: dto.subtype ?? "", isError: dto.is_error ?? false, text: dto.result,
                 sessionId: dto.session_id, numTurns: dto.num_turns, durationMs: dto.duration_ms,
@@ -53,6 +55,17 @@ nonisolated enum ClaudeEventDecoder {
         default:
             return .unknown(type: type)
         }
+    }
+
+    /// One `toolResult` per `tool_result` block that carries an id; a user line without any is `unknown`.
+    /// Complexity: O(n) time, O(n) space (n = line length)
+    private static func userEvents(_ line: Data) -> [ClaudeEvent] {
+        guard let dto = try? JSONDecoder().decode(UserLineDTO.self, from: line) else { return [unparsed(line)] }
+        let results: [ClaudeEvent] = (dto.message?.content ?? []).compactMap { block in
+            guard block.type == "tool_result", let id = block.tool_use_id else { return nil }
+            return .toolResult(ToolResult(toolUseId: id, isError: block.is_error ?? false))
+        }
+        return results.isEmpty ? [.unknown(type: "user")] : results
     }
 
     // MARK: helpers

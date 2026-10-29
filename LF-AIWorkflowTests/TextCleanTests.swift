@@ -98,4 +98,14 @@ struct TextCleanTests {
         #expect(d == [nil, 0])
         #expect(TextCleaner.collapse(big).utf8.count == big.utf8.count)
     }
+
+    @Test func dedupeRejectsCountThatWouldOverflowTableAllocation() {
+        // 2^60 spans: table bytes (cap * 8) would wrap size_t. Must fail before touching memory.
+        var span = lf_text_span(ptr: nil, len: 0)
+        var dup: [Int] = [0]
+        errno = 0
+        let rc = lf_textclean_dedupe(&span, 1 << 60, &dup)
+        #expect(rc == -1)
+        #expect(errno == ENOMEM)
+    }
 }

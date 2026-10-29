@@ -138,14 +138,12 @@ struct PromptComposer: View {
         }
     }
 
-    /// Both are disabled: the engine has no Start-at-Code entry (no queued to code edge) and the worktree setting is
-    /// global (TD-044).
     private var optionsRow: some View {
         HStack(spacing: 14) {
-            Toggle("Start at Code", isOn: .constant(false)).disabled(true)
-                .help("Not available yet: every task starts with a plan")
-            Toggle("Use worktree", isOn: .constant(true)).disabled(true)
-                .help("Set globally for now: per-task choice is not available yet")
+            Toggle("Start at Code", isOn: Bindable(composer).startAtCode)
+                .help("Skip the plan and its approval; the first stage is Code")
+            Toggle("Use worktree", isOn: Bindable(composer).useWorktree)
+                .help("Work in a separate git worktree instead of the project folder")
         }
         .font(theme.bodyFont.font).controlSize(.small)
     }

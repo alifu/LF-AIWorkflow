@@ -1,6 +1,7 @@
+#include "lf_tokens.h"
+
 #include <stddef.h>
 #include <stdint.h>
-#include "LFCore.h"
 
 /* Tuning constants (calibrated against Fixtures/tokens/reference.json). */
 #define LF_TOK_ALPHA_RUN_DIV   4   /* ASCII letter run of n chars ~ ceil(n / 4) tokens */

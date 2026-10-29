@@ -42,7 +42,7 @@ struct ClaudeCommandBuilderTests {
         let config = policy.config(for: .review)
         let args = try ClaudeCommandBuilder.arguments(config: config, sessionId: nil, addDirs: [])
         let i = try #require(args.firstIndex(of: "--allowedTools"))
-        #expect(args[i + 1] == "Read,Grep,Glob,Bash(git diff:*)")
+        #expect(args[i + 1] == "Read(./**),Grep,Glob,Bash(git diff:*)")
     }
 
     @Test(arguments: WorkflowStage.allCases)
@@ -127,6 +127,15 @@ struct ClaudeCommandBuilderTests {
                             allowedTools: [], disallowedTools: ["a,b"], maxTurns: 1)
         #expect(throws: ClaudeCommandError.invalidToolRule("a,b")) {
             try ClaudeCommandBuilder.arguments(config: d, sessionId: nil, addDirs: [])
+        }
+    }
+
+    @Test(arguments: ["-", "-x", "--dangerously-skip-permissions"])
+    func systemPromptStartingWithDashIsRejected(prompt: String) {
+        let c = StageConfig(model: "haiku", escalationModel: nil, permissionMode: .default, allowedTools: [],
+                            disallowedTools: [], maxTurns: 1, appendSystemPrompt: prompt)
+        #expect(throws: ClaudeCommandError.invalidSystemPrompt) {
+            try ClaudeCommandBuilder.arguments(config: c, sessionId: nil, addDirs: [])
         }
     }
 

@@ -90,4 +90,16 @@ struct BM25Tests {
         let chunks = Chunker.chunks(huge, targetTokens: 100)
         #expect(chunks.count == 1)
     }
+
+    @Test func nonASCIIUppercaseQueryMatchesLowercaseChunk() throws {
+        let chunks = ["la petite \u{00E9}cole du village", "nothing relevant here at all"]
+        let r = try BM25.topK(chunks: chunks, query: "\u{00C9}COLE", k: 2)
+        #expect(r.map(\.index) == [0])
+    }
+
+    @Test func nonASCIIUppercaseChunkMatchesLowercaseQuery() throws {
+        let chunks = ["\u{041C}\u{041E}\u{0421}\u{041A}\u{0412}\u{0410} city", "other text entirely"]
+        let r = try BM25.topK(chunks: chunks, query: "\u{043C}\u{043E}\u{0441}\u{043A}\u{0432}\u{0430}", k: 2)
+        #expect(r.map(\.index) == [0])
+    }
 }

@@ -25,19 +25,25 @@ nonisolated enum BM25 {
         var ids = [UInt32](repeating: 0, count: k)
         var scores = [Double](repeating: 0, count: k)
         var q = query
+        var failureErrno: Int32 = 0
         let count: Int = flat.withUnsafeBufferPointer { fp in
             let base = UnsafeRawPointer(fp.baseAddress)?.assumingMemoryBound(to: CChar.self)
             var spans = (0..<bytes.count).map { i in
                 lf_text_span(ptr: bytes[i].isEmpty ? nil : base.map { $0 + offsets[i] }, len: bytes[i].count)
             }
-            guard let index = lf_bm25_create(&spans, spans.count, defaultK1, defaultB) else { return -1 }
-            defer { lf_bm25_free(index) }
-            return q.withUTF8 { qp in
+            guard let index = lf_bm25_create(&spans, spans.count, defaultK1, defaultB) else {
+                failureErrno = errno
+                return -1
+            }
+            let result = q.withUTF8 { qp in
                 Int(lf_bm25_query(index, UnsafeRawPointer(qp.baseAddress)?.assumingMemoryBound(to: CChar.self),
                                   qp.count, k, &ids, &scores))
             }
+            if result < 0 { failureErrno = errno }  // capture before free() can clobber it
+            lf_bm25_free(index)
+            return result
         }
-        if count < 0 { throw .posix(errno) }
+        if count < 0 { throw .posix(failureErrno) }
         return (0..<count).map { (Int(ids[$0]), scores[$0]) }
     }
 }

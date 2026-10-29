@@ -102,11 +102,14 @@ nonisolated struct SafariBridge: SafariControlling {
         try await tabs().first(where: \.current)
     }
 
+    /// Rejects a page whose `location.href` differs from the tab that was listed (the tab navigated).
     /// Complexity: O(n) time, O(n) space
     func extract(_ tab: SafariTab) async throws(SafariError) -> CapturedPage {
         let out = try await invoke(["extract", String(tab.window), String(tab.tab), tab.url.absoluteString,
                                     extractScriptURL.path], timeout: Self.extractTimeout)
         guard let page = try? CapturedPage.parse(String(decoding: out, as: UTF8.self)) else { throw .malformedOutput }
+        let listed = URLNormalizer.normalize(tab.url.absoluteString) ?? tab.url
+        guard page.url == listed else { throw .tabChanged }
         return page
     }
 

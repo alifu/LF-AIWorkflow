@@ -87,6 +87,26 @@ struct SafariBridgeTests {
         #expect(await rec.timeouts.first == .seconds(30))
     }
 
+    @Test func extractRejectsPageWhoseLocationDiffersFromTab() async throws {
+        let rec = Recorder()
+        let page = """
+        {"v":1,"title":"T","url":"https://evil.example.net/landing","text":"\(String(repeating: "x", count: 300))","headings":[],"links":[],"tables":[]}
+        """
+        let b = bridge(rec) { result(out: Data(page.utf8)) }
+        let tab = SafariTab(window: 1, tab: 1, title: "t", url: URL(string: "https://example.com/a")!, current: false)
+        await #expect(throws: SafariError.tabChanged) { try await b.extract(tab) }
+    }
+
+    @Test func extractAcceptsLocationThatNormalizesToTabURL() async throws {
+        let rec = Recorder()
+        let page = """
+        {"v":1,"title":"T","url":"https://example.com/a?utm_source=x#top","text":"\(String(repeating: "x", count: 300))","headings":[],"links":[],"tables":[]}
+        """
+        let b = bridge(rec) { result(out: Data(page.utf8)) }
+        let tab = SafariTab(window: 1, tab: 1, title: "t", url: URL(string: "https://example.com/a")!, current: false)
+        #expect(try await b.extract(tab).url.absoluteString == "https://example.com/a")
+    }
+
     @Test func nonZeroStatusMapsStderr() async throws {
         let err = try loadFixture("safari_err_denied.txt")
         let b = bridge(Recorder()) { result(1, err: err) }

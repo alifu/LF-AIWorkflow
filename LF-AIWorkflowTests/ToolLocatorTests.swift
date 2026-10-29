@@ -17,8 +17,7 @@ struct ToolLocatorTests {
     @discardableResult
     private func makeFile(_ dir: URL, _ name: String, mode: Int = 0o755, body: String = "#!/bin/sh\nexit 0\n") throws -> URL {
         let url = dir.appendingPathComponent(name)
-        try body.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+        try TestEnv.writeScript(url, contents: body, mode: mode_t(mode))
         return url
     }
 
@@ -116,6 +115,14 @@ struct ToolLocatorTests {
         let dir = try makeTempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         let slow = try makeFile(dir, "slow-sh", body: "#!/bin/sh\nexec sleep 30\n")
         #expect(await LoginShellPath(shell: slow.path, timeout: .milliseconds(300)).resolve() == nil)
+    }
+
+    @Test func loginShellPathKillsTermIgnoringFloodingShell() async throws {
+        let dir = try makeTempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let shell = try makeFile(dir, "flood-sh", body: "#!/bin/sh\ntrap '' TERM\nwhile :; do echo flood; done\n")
+        let start = ContinuousClock.now
+        #expect(await LoginShellPath(shell: shell.path, timeout: .milliseconds(300)).resolve() == nil)
+        #expect(ContinuousClock.now - start < .seconds(8))
     }
 
     @Test func loginShellPathIsCached() async throws {

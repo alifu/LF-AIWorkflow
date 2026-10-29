@@ -11,10 +11,10 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Settings edits arrive in bursts (typing a number); the engine gets the last value after this quiet period.
     private static let settingsDebounce: Duration = .milliseconds(300)
-    /// Time the collapse animation needs before the window may shrink (the panel expands BEFORE, shrinks AFTER).
-    private static let collapseSettleDelay: Duration = .milliseconds(400)
 
     private var panel: NotchPanel?
+    private var hosting: NSHostingView<AnyView>?
+    private let startup = StartupProgress()
     private var controller: NotchWindowController?
     private var hotkeys: HotkeyManager?
     private var inboxHotkeys: HotkeyManager?
@@ -25,16 +25,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var defaultsObserver: Task<Void, Never>?
     private var frameTask: Task<Void, Never>?
     private var engineSettingsTask: Task<Void, Never>?
-    private var appliedState: NotchPanelState = .collapsed
+    private var frame = PanelFrameTracker()
     private let hover = HoverController()
     private var router = PanelRouter()
     private let layout = NotchLayoutModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Task { [weak self] in
-            let services = await AppComposition.makeServices()
+        installStartingPanel()
+        Task { [weak self, startup] in
+            let services = await startup.run { await AppComposition.makeServices() }
             self?.install(services)
         }
+    }
+
+    /// TD-041: the panel appears at once with a "starting" state; `install` swaps in the real content.
+    private func installStartingPanel() {
+        let panel = NotchPanel()
+        let hosting = NSHostingView(rootView: AnyView(ThemedRoot(settings: AppComposition.settings) { StartingView() }))
+        hosting.sizingOptions = []
+        panel.contentView = hosting
+        appearanceObserver = AppearanceObserver(settings: AppComposition.settings, targets: [panel, hosting])
+        let controller = NotchWindowController(
+            screens: SystemScreenProvider(), override: Self.storedOverride(), panel: panel)
+        controller.onKindChange = { [layout] kind in layout.kind = kind }
+        controller.apply(.collapsed)
+        controller.start()
+        panel.orderFrontRegardless()
+        self.panel = panel
+        self.hosting = hosting
+        self.controller = controller
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -54,24 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.research = services.research
         router = PanelRouter(research: services.research.viewModel, researchComposer: services.research.composer)
         refreshResearchState(services.research)
-        let panel = NotchPanel()
         let (hover, router, layout) = (self.hover, self.router, self.layout)
-        let hosting = NSHostingView(rootView: ThemedRoot(settings: AppComposition.settings) {
+        hosting?.rootView = AnyView(ThemedRoot(settings: AppComposition.settings) {
             NotchRootView(model: model, hover: hover, router: router, layout: layout)
         })
-        hosting.sizingOptions = []   // the controller owns the window frame; the content must not resize it
-        panel.contentView = hosting
-        appearanceObserver = AppearanceObserver(settings: AppComposition.settings, targets: [panel, hosting])
-        let controller = NotchWindowController(
-            screens: SystemScreenProvider(), override: Self.storedOverride(), panel: panel)
-        controller.onKindChange = { [layout] kind in layout.kind = kind }
-        controller.apply(.collapsed)
-        controller.start()
-        panel.orderFrontRegardless()
-        self.panel = panel
-        self.controller = controller
-
-        panel.onEscape = { [hover] composing in hover.escapePressed(isComposingText: composing) }
+        panel?.onEscape = { [hover] composing in hover.escapePressed(isComposingText: composing) }
         let hotkeys = HotkeyManager(
             factory: { spec, action in GlobalHotkey(spec: spec, action: action) },
             action: { [hover] in hover.toggleFromHotkey() })
@@ -103,8 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Reads the Safari permission (no prompt) and the inbox size for the Research tab.
     private func refreshResearchState(_ research: ResearchServices) {
-        research.viewModel.setSafariState(SafariPermission.current())
         Task { [viewModel = research.viewModel, inbox = research.inbox] in
+            viewModel.setSafariState(await SafariPermission.currentOffMain())
             let count = (try? await inbox.items().count) ?? 0
             viewModel.setInboxCount(count)
         }
@@ -187,18 +193,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func panelStateChanged() {
         let (state, focusHeld) = (hover.state, hover.isFocusHeld)
         frameTask?.cancel()
-        let wasOpen = appliedState == .expanded || appliedState == .pinned
-        let shrinking = state == .collapsed || state == .peek
-        appliedState = state
+        let plan = frame.plan(
+            for: state, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         updateClickOutside(for: state)
-        guard wasOpen, shrinking else {
-            controller?.apply(state, focusHeld: focusHeld)
+        guard case .applyAfter(let delay) = plan else {
+            applyFrame(state, focusHeld: focusHeld)
             return
         }
         frameTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.collapseSettleDelay) } catch { return }
-            self?.controller?.apply(state, focusHeld: focusHeld)
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.applyFrame(state, focusHeld: focusHeld)
         }
+    }
+
+    /// Records the frame as applied only once it reaches the controller (TD-052).
+    private func applyFrame(_ state: NotchPanelState, focusHeld: Bool) {
+        frame.markApplied(state)
+        controller?.apply(state, focusHeld: focusHeld)
     }
 
     private static func storedOverride() -> DisplayOverride {

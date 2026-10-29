@@ -39,6 +39,7 @@ actor ClaudeSession {
     private var usageByMessageId: [String: TokenUsage] = [:]
     private var anonymousUsage: TokenUsage = .zero
 
+    /// Complexity: O(C) time, O(C) space (C = terminal capacity)
     init(terminalCapacity: Int = 256 * 1024) throws {
         ring = try RingBuffer(capacity: terminalCapacity)
         framer = try NDJSONFramer()
@@ -55,7 +56,7 @@ actor ClaudeSession {
     /// Starts the run; once per instance. The child never sees variables in `ClaudeCommandBuilder.droppedEnvironmentKeys`.
     /// Throws `.cancelled` (without spawning) if `cancel()` came first.
     /// Complexity: O(argc + envc) time, O(argc + envc) space
-    func start(_ invocation: ProcessInvocation) throws(ClaudeSessionError) {
+    func start(_ invocation: ProcessInvocation) async throws(ClaudeSessionError) {
         guard !started else { throw .alreadyStarted }
         started = true
         guard !cancelled else {
@@ -68,11 +69,17 @@ actor ClaudeSession {
             workingDirectory: invocation.workingDirectory, stdin: invocation.stdin)
         let spawned: PTYProcess
         do {
-            spawned = try PTYProcess.spawn(sanitized)
+            spawned = try await PTYProcess.spawnOffPool(sanitized)
         } catch {
             continuation.finish()
             guard case .posix(let code) = error else { throw .spawnFailed(EIO) }
             throw .spawnFailed(code)
+        }
+        // `cancel()` may have run while the spawn was suspended; it could not see this child yet.
+        guard !cancelled else {
+            spawned.terminate()
+            continuation.finish()
+            throw .cancelled
         }
         process = spawned
         AppLog.claude.info("claude spawned pid=\(spawned.pid) cwd=\(sanitized.workingDirectory.path, privacy: .private)")
@@ -82,6 +89,7 @@ actor ClaudeSession {
     }
 
     /// Kills the child's process group; the stream ends with `.exited`. Safe to call repeatedly.
+    /// Complexity: O(1) time, O(1) space
     func cancel() {
         cancelled = true
         process?.terminate()
@@ -93,6 +101,7 @@ actor ClaudeSession {
 
     // MARK: - Output handling
 
+    /// Complexity: O(n) time, O(n) space (n = bytes in this output chunk)
     private func handle(_ out: PTYProcess.Output) {
         switch out {
         case .data(let data):
@@ -112,14 +121,17 @@ actor ClaudeSession {
         }
     }
 
+    /// Complexity: O(n) time, O(n) space (n = total bytes in `lines`)
     private func emit(lines: [Data]) {
         for line in lines {
-            guard let event = ClaudeEventDecoder.decode(line) else { continue }
-            track(event)
-            continuation.yield(event)
+            for event in ClaudeEventDecoder.decode(line) {
+                track(event)
+                continuation.yield(event)
+            }
         }
     }
 
+    /// Complexity: O(m) time, O(1) space (m = distinct assistant message ids seen)
     private func track(_ event: ClaudeEvent) {
         switch event {
         case .initialized(let info): sessionId = info.sessionId

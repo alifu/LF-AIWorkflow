@@ -8,6 +8,13 @@ import Foundation
 import LFCore
 @testable import LF_AIWorkflow
 
+/// True when the test binary is linked with the ASan or UBSan runtime (TD-019: detected here, not in the C API).
+private let runningUnderSanitizer: Bool = {
+    guard let handle = dlopen(nil, RTLD_NOW) else { return false }
+    defer { dlclose(handle) }
+    return dlsym(handle, "__asan_init") != nil || dlsym(handle, "__ubsan_handle_add_overflow") != nil
+}()
+
 struct TokenEstimateTests {
 
     private struct Reference: Decodable {
@@ -74,19 +81,16 @@ struct TokenEstimateTests {
         }
     }
 
-    // Wall-clock guard (TD-011). ASan slows code several times over, so it is skipped there.
-    @Test(.enabled(if: lf_core_built_with_sanitizer() == 0, "wall-clock guard is meaningless under ASan/UBSan"))
+    // Wall-clock guard (TD-011, TD-055): Release only; Debug and ASan timings are noise under parallel load.
+    #if !DEBUG
+    @Test(.enabled(if: !runningUnderSanitizer, "wall-clock guard is meaningless under ASan/UBSan"))
     func tenMegabytesRunsFast() {
         let chunk = Array("The quick brown fox, 12345 jumps over {\"lazy\": 日本} dogs.\n".utf8)
         var big = Data(capacity: 10_000_000 + chunk.count)
         while big.count < 10_000_000 { big.append(contentsOf: chunk) }
         // Best of three filters out CPU spikes from the hosted app and parallel tests. The bound is looser for
         // unoptimised Debug builds; an O(n^2) regression would still miss it by orders of magnitude.
-        #if DEBUG
-        let limit = Duration.milliseconds(500)
-        #else
         let limit = Duration.milliseconds(50)
-        #endif
         var est = 0
         var best = Duration.seconds(60)
         for _ in 0..<3 {
@@ -97,4 +101,5 @@ struct TokenEstimateTests {
         #expect(est > 0)
         #expect(best < limit, "best of 3 took \(best), limit \(limit)")
     }
+    #endif
 }

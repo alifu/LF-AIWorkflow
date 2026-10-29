@@ -84,6 +84,26 @@ struct ToolsSettingsModelTests {
         #expect(m.rows.first { $0.tool == .claude }?.version == .unchecked)
     }
 
+    @Test func typedOverrideIsValidatedAsAbsolute() {
+        let result = ToolsSettingsModel.validatedOverride("bin/claude", kind: { _ in .regularExecutable })
+        #expect(result == .failure(.notAbsolute))
+    }
+
+    @Test func typedOverrideIsCheckedAgainstTheFileSystemProbe() {
+        let probed = Recorder()
+        let result = ToolsSettingsModel.validatedOverride("  /opt/bin/claude  ", resolve: { $0 }, kind: { path in
+            probed.record(path)
+            return .notExecutable
+        })
+        #expect(probed.values == ["/opt/bin/claude"])
+        #expect(result == .failure(.notExecutable))
+    }
+
+    @Test func typedOverrideIsStoredOnlyWhenItIsAnExecutable() {
+        let result = ToolsSettingsModel.validatedOverride("/opt/bin/claude", resolve: { $0 }, kind: { _ in .regularExecutable })
+        #expect(result == .success("/opt/bin/claude"))
+    }
+
     @Test func versionLineIsTheFirstNonEmptyStdoutLine() {
         let data = Data("\n  claude 2.1.0  \nmore\n".utf8)
         #expect(ToolVersionProbe.versionLine(from: data) == "claude 2.1.0")

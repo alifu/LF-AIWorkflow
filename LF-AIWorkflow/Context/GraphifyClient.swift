@@ -8,7 +8,7 @@ import os
 
 /// Graph context via the `graphify` CLI. Optional by design: any failure yields `.empty`, never an error.
 actor GraphifyClient: GraphQuerying {
-    private let locator: ToolLocator
+    private let locators: ToolLocatorProvider
     private let queryTimeout: Duration
     private let updateTimeout: Duration
     private let environment: [String: String]
@@ -17,7 +17,14 @@ actor GraphifyClient: GraphQuerying {
 
     init(locator: ToolLocator, queryTimeout: Duration = .seconds(20), updateTimeout: Duration = .seconds(180),
          environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.locator = locator
+        self.init(locators: ToolLocatorProvider(fixed: locator), queryTimeout: queryTimeout,
+                  updateTimeout: updateTimeout, environment: environment)
+    }
+
+    /// The locator is asked per command, so a changed `graphify` path applies to the next call.
+    init(locators: ToolLocatorProvider, queryTimeout: Duration = .seconds(20), updateTimeout: Duration = .seconds(180),
+         environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.locators = locators
         self.queryTimeout = queryTimeout
         self.updateTimeout = updateTimeout
         self.environment = environment
@@ -100,7 +107,7 @@ actor GraphifyClient: GraphQuerying {
 
     private func exec(_ args: [String], root: URL, timeout: Duration) async -> CommandResult? {
         let executable: URL
-        do { executable = try locator.locate(.graphify) } catch {
+        do { executable = try await locators.current().locate(.graphify) } catch {
             AppLog.workflow.warning("graphify not available: \(String(describing: error))")
             return nil
         }

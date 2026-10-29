@@ -127,6 +127,28 @@ struct NDJSONTests {
         #expect(text(try fr.feed(Data("ok\n".utf8))) == ["ok"])
     }
 
+    /// TD-016: `max_line + 1` overflowed at SIZE_MAX, so every split line was dropped as oversize.
+    @Test func maxLineAtSizeMaxStillJoinsSplitLines() throws {
+        let fr = try #require(lf_ndjson_create(size_t.max))
+        defer { lf_ndjson_destroy(fr) }
+        final class Seen { var lines: [String] = [] }
+        let seen = Seen()
+        let collect: lf_ndjson_line_cb = { line, len, ctx in
+            let s = Unmanaged<Seen>.fromOpaque(ctx!).takeUnretainedValue()
+            s.lines.append(String(decoding: UnsafeRawBufferPointer(start: line, count: len), as: UTF8.self))
+            return 0
+        }
+        let ctx = Unmanaged.passUnretained(seen).toOpaque()
+        let head = Array("abc".utf8)
+        let tail = Array("def\n".utf8)
+        withExtendedLifetime(seen) {
+            #expect(lf_ndjson_feed(fr, head, head.count, collect, ctx) == 0)
+            #expect(lf_ndjson_feed(fr, tail, tail.count, collect, ctx) == 1)
+        }
+        #expect(seen.lines == ["abcdef"])
+        #expect(lf_ndjson_oversize_count(fr) == 0)
+    }
+
     @Test func invalidUTF8PassesThroughVerbatim() throws {
         let fr = try NDJSONFramer()
         let line = Data([0x7B, 0xFF, 0xFE, 0x00, 0x7D])
@@ -197,6 +219,13 @@ struct NDJSONFieldTests {
         let l = line(#"{"x":"a\\","y":"q\"uote","type":"ok"}"#)
         #expect(NDJSONFramer.field("y", in: l) == #"q\"uote"#)
         #expect(NDJSONFramer.field("type", in: l) == "ok")
+    }
+
+    /// TD-016: a backslash as the last byte must not move the cursor past the end of the line.
+    @Test func trailingBackslashInsideStringFailsCleanly() {
+        #expect(NDJSONFramer.field("a", in: line(#"{"a":"x\"#)) == nil)
+        #expect(NDJSONFramer.field("a", in: line(#"{"a":"x\\"#)) == nil)
+        #expect(NDJSONFramer.intField("a", in: line(#"{"a":"x\"#)) == nil)
     }
 
     @Test func whitespaceAroundColon() {

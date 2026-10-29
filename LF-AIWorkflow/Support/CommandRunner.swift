@@ -36,19 +36,18 @@ nonisolated enum CommandRunner {
     @concurrent static func run(_ inv: ProcessInvocation, timeout: Duration,
                                 maxOutputBytes: Int = 8 << 20) async throws(CommandError) -> CommandResult {
         let run = RunningCommand(maxBytes: maxOutputBytes, timeout: timeout)
-        let process = Process()
-        process.executableURL = inv.executable
-        process.arguments = inv.arguments
-        process.environment = inv.environment
-        process.currentDirectoryURL = inv.workingDirectory
-        process.terminationHandler = { [run] proc in
-            let signalled = proc.terminationReason == .uncaughtSignal
-            run.exited(status: signalled ? 128 + proc.terminationStatus : proc.terminationStatus)
-        }
-
-        let pipes: Pipes
-        do {
-            pipes = try SpawnGate.withLock { () throws -> Pipes in
+        // Off the cooperative pool: the gate may be held by another spawn for a long exec (TD-055).
+        let spawned = try await SpawnGate.runOffPool { () throws(CommandError) -> Spawned in
+            try SpawnGate.withLock { () throws(CommandError) -> Spawned in
+                let process = Process()
+                process.executableURL = inv.executable
+                process.arguments = inv.arguments
+                process.environment = inv.environment
+                process.currentDirectoryURL = inv.workingDirectory
+                process.terminationHandler = { [run] proc in
+                    let signalled = proc.terminationReason == .uncaughtSignal
+                    run.exited(status: signalled ? 128 + proc.terminationStatus : proc.terminationStatus)
+                }
                 // Pipes are created, marked close-on-exec, handed to the child and their child ends closed all
                 // under the gate, so no concurrent spawn can inherit any of these descriptors (TD-014).
                 let pipes = Pipes.make(hasStdin: !inv.stdin.isEmpty)
@@ -57,15 +56,14 @@ nonisolated enum CommandRunner {
                 process.standardError = pipes.stderr
                 do { try process.run() } catch {
                     pipes.closeAll()
-                    throw error
+                    throw .spawnFailed(error.localizedDescription)
                 }
                 pipes.closeParentEndsOfChild()
-                return pipes
+                return Spawned(pid: process.processIdentifier, pipes: pipes)
             }
-        } catch {
-            throw .spawnFailed(error.localizedDescription)
         }
-        run.started(pid: process.processIdentifier)
+        let pipes = spawned.pipes
+        run.started(pid: spawned.pid, cleanup: { pipes.stopReading() })
         pipes.startDraining(into: run)
         pipes.feed(inv.stdin)
 
@@ -81,6 +79,12 @@ nonisolated enum CommandRunner {
         timer.cancel()
         return try result.get()
     }
+}
+
+/// What a successful spawn hands back to the caller: the child's pid and its pipe ends.
+private nonisolated struct Spawned: Sendable {
+    let pid: pid_t
+    let pipes: Pipes
 }
 
 /// Pipe handles for one child. `FileHandle`/`Pipe` are `Sendable`.
@@ -106,6 +110,13 @@ private nonisolated struct Pipes: Sendable {
         try? stdout.fileHandleForWriting.close()
         try? stderr.fileHandleForWriting.close()
         try? stdin?.fileHandleForReading.close()
+    }
+
+    /// Drops both read handlers so the sources release their handles (the pipes close on dealloc), even if a
+    /// stray process in another group still holds a write end (TD-030).
+    func stopReading() {
+        stdout.fileHandleForReading.readabilityHandler = nil
+        stderr.fileHandleForReading.readabilityHandler = nil
     }
 
     func closeAll() {
@@ -140,7 +151,7 @@ private nonisolated struct Pipes: Sendable {
 }
 
 /// Lock-guarded state shared by the pipe handlers, the termination handler, the timer and cancellation.
-private nonisolated final class RunningCommand: Sendable {
+nonisolated final class RunningCommand: Sendable {
     private struct State {
         var out = Data()
         var err = Data()
@@ -156,6 +167,7 @@ private nonisolated final class RunningCommand: Sendable {
         var killSent = false
         var reaped = false   // also true once the command completed: no more signals
         var continuation: CheckedContinuation<Result<CommandResult, CommandError>, Never>?
+        var cleanup: (@Sendable () -> Void)?
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -167,9 +179,10 @@ private nonisolated final class RunningCommand: Sendable {
         self.timeout = timeout
     }
 
-    func started(pid: pid_t) {
+    func started(pid: pid_t, cleanup: (@Sendable () -> Void)? = nil) {
         let shouldKill = state.withLock { s -> Bool in
             s.pid = pid
+            s.cleanup = cleanup
             return s.cancelled && !s.reaped
         }
         if shouldKill { terminate() }
@@ -266,20 +279,28 @@ private nonisolated final class RunningCommand: Sendable {
         }
     }
 
+    /// Complexity: O(1) time, O(1) space
     private func resumeIfComplete() {
-        let done: (CheckedContinuation<Result<CommandResult, CommandError>, Never>, Result<CommandResult, CommandError>)? =
+        typealias Outcome = Result<CommandResult, CommandError>
+        let done: (CheckedContinuation<Outcome, Never>, Outcome, (@Sendable () -> Void)?)? =
             state.withLock { s in
-                guard let cont = s.continuation, let status = s.status else { return nil }
+                guard let cont = s.continuation else { return nil }
                 // After SIGTERM the group is hunted down by `reapTick`; do not wait for stragglers' EOF.
-                let drained = s.terminatedAt == nil ? (s.outDone && s.errDone) : s.reaped
-                guard drained else { return nil }
+                // If the termination handler never fired, the reap fallback reports a SIGKILL death (TD-116).
+                let terminated = s.terminatedAt != nil
+                let drained = terminated ? s.reaped : (s.outDone && s.errDone)
+                guard drained, let status = s.status ?? (terminated ? 128 + SIGKILL : nil) else { return nil }
                 s.continuation = nil
                 s.reaped = true   // completed: never signal this pid again (it may be reused)
-                let result: Result<CommandResult, CommandError> = s.timedOut
+                let cleanup = terminated ? s.cleanup : nil
+                s.cleanup = nil
+                let result: Outcome = s.timedOut
                     ? .failure(.timedOut(after: timeout))
                     : .success(CommandResult(status: status, stdout: s.out, stderr: s.err, truncated: s.truncated))
-                return (cont, result)
+                return (cont, result, cleanup)
             }
-        if let (cont, result) = done { cont.resume(returning: result) }
+        guard let (cont, result, cleanup) = done else { return }
+        cleanup?()
+        cont.resume(returning: result)
     }
 }

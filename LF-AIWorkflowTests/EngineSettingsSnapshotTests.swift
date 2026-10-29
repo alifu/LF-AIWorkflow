@@ -48,14 +48,13 @@ struct EngineSettingsSnapshotTests {
     @Test func taskStartedBeforeAChangeKeepsItsSettings() async throws {
         let h = try Harness()
         let id = try await h.runToCodeStart()
-        let original = await h.engine.settings
 
         let store = storeWith { $0.stageModels = [.code: "haiku"] }
         await h.engine.update(settings: EngineSettings.from(store.snapshot()))
 
         #expect(await h.recorder.wait(.done))
         #expect(h.claude.calls(for: .code).first?.config.model == "sonnet")
-        #expect(await h.engine.effectiveSettings(for: id) == original)
+        #expect(await h.engine.effectiveSettings(for: id) == EngineSettings.from(store.snapshot()))  // snapshot pruned at done (TD-071)
     }
 
     @Test func taskSubmittedAfterAChangeUsesTheNewSettings() async throws {

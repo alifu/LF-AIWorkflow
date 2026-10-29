@@ -23,6 +23,12 @@ extension HotkeySpec {
     /// The combinations the Settings picker offers; the first is the default.
     static let presets: [HotkeySpec] = [.optionCommandSpace, .controlOptionSpace, .optionCommandN]
 
+    /// Shortcuts offered for the inbox capture: the presets plus its default, without the main shortcut.
+    /// Complexity: O(1) time, O(1) space
+    static func inboxChoices(excluding main: HotkeySpec) -> [HotkeySpec] {
+        ([.controlOptionCommandC] + presets).filter { $0 != main }
+    }
+
     private static let requiredModifierMask = UInt32(cmdKey | controlKey | optionKey)
     /// Virtual key codes of Command, Shift, Caps Lock, Option, Control (left and right) and Fn (54...63).
     private static let modifierKeyCodes: ClosedRange<UInt32> = 54...63

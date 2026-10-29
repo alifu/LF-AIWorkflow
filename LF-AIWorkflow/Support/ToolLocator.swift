@@ -5,7 +5,7 @@
 
 import Foundation
 
-nonisolated enum Tool: String, Sendable, CaseIterable {
+nonisolated enum Tool: String, Sendable, CaseIterable, Codable {
     case claude, graphify, git
 
     var displayName: String {

@@ -34,7 +34,7 @@ nonisolated enum ProjectRules {
         var sawRulesFile = false
         for name in rulesNames {
             let url = root.appendingPathComponent(name)
-            guard isRegularFile(url) else { continue }
+            guard isContainedRegularFile(url, root: root) else { continue }
             sawRulesFile = true
             do {
                 let file = try inspect(url, rulesMaxTokens: rulesMaxTokens)
@@ -74,15 +74,21 @@ nonisolated enum ProjectRules {
         return RulesFile(url: url, byteSize: size, estimatedTokens: tokens, isTooLarge: tooLarge)
     }
 
-    private static func isRegularFile(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
+    /// A regular file whose symlinks resolve inside `root`; anything that escapes the project is refused (TD-099).
+    /// Complexity: O(d) time, O(d) space (d = path components of `url`)
+    private static func isContainedRegularFile(_ url: URL, root: URL) -> Bool {
+        let resolved = url.resolvingSymlinksInPath()
+        let rootPrefix = root.resolvingSymlinksInPath().path + "/"
+        guard resolved.path.hasPrefix(rootPrefix) else { return false }
+        return (try? resolved.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
     }
 
+    /// Complexity: O(e log e) time, O(e) space (e = entries in review/)
     private static func checklists(root: URL) -> [URL] {
         let dir = root.appendingPathComponent("review")
         let entries = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         return entries
-            .filter { $0.lastPathComponent.hasPrefix("checklist-") && $0.pathExtension == "md" && isRegularFile($0) }
+            .filter { $0.lastPathComponent.hasPrefix("checklist-") && $0.pathExtension == "md" && isContainedRegularFile($0, root: root) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 }

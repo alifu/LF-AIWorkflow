@@ -37,10 +37,48 @@ static unsigned char lower(unsigned char c) {
     return (c >= 'A' && c <= 'Z') ? (unsigned char)(c + 32) : c;
 }
 
+/// Simple lower-case mapping for the 2-byte range (Latin-1, Latin Extended-A, Greek, Cyrillic).
+/// Every mapping stays within two UTF-8 bytes, so folded text has the same byte length.
+/// Complexity: O(1) time, O(1) space
+static uint32_t fold_cp(uint32_t cp) {
+    if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) return cp + 32;
+    if (cp >= 0x100 && cp <= 0x17F) {
+        if (cp == 0x130 || cp == 0x131 || cp == 0x138 || cp == 0x149 || cp == 0x17F) return cp;
+        if (cp == 0x178) return 0xFF;
+        int upper = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E) ? (cp & 1) : !(cp & 1);
+        return upper ? cp + 1 : cp;
+    }
+    if (cp >= 0x391 && cp <= 0x3A9 && cp != 0x3A2) return cp + 32;
+    if (cp >= 0x410 && cp <= 0x42F) return cp + 32;
+    if (cp >= 0x400 && cp <= 0x40F) return cp + 80;
+    return cp;
+}
+
+/// Folds the character at s[i] into out; returns bytes consumed (out gets the same count).
+/// Invalid or longer sequences pass through byte by byte.
+/// Complexity: O(1) time, O(1) space
+static size_t fold_char(const char *s, size_t len, size_t i, unsigned char out[2]) {
+    unsigned char c = (unsigned char)s[i];
+    if (c >= 0xC2 && c <= 0xDF && i + 1 < len && ((unsigned char)s[i + 1] & 0xC0) == 0x80) {
+        uint32_t cp = ((uint32_t)(c & 0x1F) << 6) | ((unsigned char)s[i + 1] & 0x3F);
+        uint32_t f = fold_cp(cp);
+        out[0] = (unsigned char)(0xC0 | (f >> 6));
+        out[1] = (unsigned char)(0x80 | (f & 0x3F));
+        return 2;
+    }
+    out[0] = lower(c);
+    return 1;
+}
+
 /// Complexity: O(len) time, O(1) space
 static uint64_t hash_lower(const char *s, size_t len) {
     uint64_t h = 14695981039346656037ULL;
-    for (size_t i = 0; i < len; i++) { h ^= lower((unsigned char)s[i]); h *= 1099511628211ULL; }
+    for (size_t i = 0; i < len;) {
+        unsigned char o[2];
+        size_t n = fold_char(s, len, i, o);
+        for (size_t j = 0; j < n; j++) { h ^= o[j]; h *= 1099511628211ULL; }
+        i += n;
+    }
     return h;
 }
 
@@ -60,8 +98,13 @@ static int next_token(const char *s, size_t len, size_t *pos, size_t *start, siz
 
 static int term_matches(const lf_bm25_index *ix, const term *t, const char *s, size_t len, uint64_t h) {
     if (t->hash != h || t->len != len) return 0;
-    for (size_t i = 0; i < len; i++)
-        if ((unsigned char)ix->arena[t->off + i] != lower((unsigned char)s[i])) return 0;
+    for (size_t i = 0; i < len;) {
+        unsigned char o[2];
+        size_t n = fold_char(s, len, i, o);
+        for (size_t j = 0; j < n; j++)
+            if ((unsigned char)ix->arena[t->off + i + j] != o[j]) return 0;
+        i += n;
+    }
     return 1;
 }
 
@@ -77,6 +120,7 @@ static long find_term(const lf_bm25_index *ix, const char *s, size_t len, uint64
 
 /// Complexity: O(terms) time, O(terms) space
 static int grow_slots(lf_bm25_index *ix) {
+    if (ix->nslots > SIZE_MAX / 2 / sizeof(size_t)) { errno = ENOMEM; return -1; }
     size_t ns = ix->nslots * 2;
     size_t *slots = calloc(ns, sizeof(size_t));
     if (!slots) return -1;
@@ -93,14 +137,17 @@ static int grow_slots(lf_bm25_index *ix) {
 
 /// Complexity: O(1) amortized time, O(len) space
 static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
+    if (ix->nterms >= SIZE_MAX / 2 - 1) return -1;
     if ((ix->nterms + 1) * 2 > ix->nslots && grow_slots(ix) != 0) return -1;
     if (ix->nterms == ix->tcap) {
+        if (ix->tcap > SIZE_MAX / 2 / sizeof(term)) return -1;
         size_t nc = ix->tcap ? ix->tcap * 2 : 64;
         term *nt = realloc(ix->terms, nc * sizeof(term));
         if (!nt) return -1;
         ix->terms = nt;
         ix->tcap = nc;
     }
+    if (len > SIZE_MAX / 4 - ix->alen) return -1;
     if (ix->alen + len > ix->acap) {
         size_t nc = ix->acap ? ix->acap * 2 : 1024;
         while (nc < ix->alen + len) nc *= 2;
@@ -109,7 +156,12 @@ static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
         ix->arena = na;
         ix->acap = nc;
     }
-    for (size_t i = 0; i < len; i++) ix->arena[ix->alen + i] = (char)lower((unsigned char)s[i]);
+    for (size_t i = 0; i < len;) {
+        unsigned char o[2];
+        size_t n = fold_char(s, len, i, o);
+        for (size_t j = 0; j < n; j++) ix->arena[ix->alen + i + j] = (char)o[j];
+        i += n;
+    }
     term *t = &ix->terms[ix->nterms];
     memset(t, 0, sizeof(*t));
     t->off = ix->alen;
@@ -126,6 +178,7 @@ static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
 static int add_posting(term *t, uint32_t chunk) {
     if (t->pn > 0 && t->p[t->pn - 1].chunk == chunk) { t->p[t->pn - 1].tf++; return 0; }
     if (t->pn == t->pcap) {
+        if (t->pcap > SIZE_MAX / 2 / sizeof(posting)) return -1;
         size_t nc = t->pcap ? t->pcap * 2 : 2;
         posting *np = realloc(t->p, nc * sizeof(posting));
         if (!np) return -1;
@@ -175,6 +228,7 @@ lf_bm25_index *lf_bm25_create(const lf_text_span *chunks, size_t n, double k1, d
             long ti = find_term(ix, tok, tl, h);
             if (ti < 0) ti = add_term(ix, tok, tl, h);
             if (ti < 0 || add_posting(&ix->terms[ti], (uint32_t)c) != 0) goto fail;
+            if (ix->doclen[c] == UINT32_MAX) { errno = EOVERFLOW; goto fail_keep; }
             ix->doclen[c]++;
             total++;
         }
@@ -252,6 +306,7 @@ long lf_bm25_query(const lf_bm25_index *ix, const char *q, size_t qlen, size_t k
         for (size_t i = 0; i < nseen; i++) if (seen[i] == ti) { dup = 1; break; }
         if (dup) continue;
         if (nseen == qcap) {
+            if (qcap > SIZE_MAX / 2 / sizeof(long)) { errno = ENOMEM; goto done; }
             size_t nc = qcap ? qcap * 2 : 8;
             long *ns = realloc(seen, nc * sizeof(long));
             if (!ns) { errno = ENOMEM; goto done; }

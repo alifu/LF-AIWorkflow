@@ -10,6 +10,7 @@ struct TaskRowView: View {
     let row: TaskRowModel
     let model: any WorkflowControlling
     let router: PanelRouter
+    @State private var confirmingRemoval = false
     @Environment(\.appTheme) private var theme
     @Environment(\.colorScheme) private var scheme
     private var palette: ThemePalette { theme.palette(for: scheme) }
@@ -24,7 +25,7 @@ struct TaskRowView: View {
                     Text(row.tokensText).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color).monospacedDigit()
                 }
                 StageChipStrip(chips: row.chips)
-                statusLine
+                TaskStatusLine(text: row.statusLine, needsAttention: row.needsAttention, font: theme.bodyFont)
                 if let progress = row.progress {
                     ThemedProgressBar(value: progress).accessibilityHidden(true)
                 }
@@ -36,26 +37,13 @@ struct TaskRowView: View {
         .padding(10)
         .themedSurface(row.needsAttention ? .attentionRow : .row)
         .contextMenu { contextMenu }
-    }
-
-    /// Solid themes show an attention row's status as a flat waiting pill; tinted themes keep colored text.
-    /// Complexity: O(1) time, O(1) space
-    @ViewBuilder private var statusLine: some View {
-        if row.needsAttention, theme.statusFills == .solid {
-            Text(row.statusLine)
-                .font(theme.bodyFont.font)
-                .foregroundStyle(palette.onStageFill.color)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(palette.waitingFill.color))
-                .lineLimit(2)
-        } else {
-            Text(row.statusLine)
-                .font(theme.bodyFont.font)
-                .foregroundStyle(row.needsAttention ? palette.warning.color : palette.secondaryText.color)
-                .lineLimit(2)
+        .confirmationDialog("Remove this task's worktree?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("Remove worktree", role: .destructive) { Task { await model.removeWorktree(row.id) } }
+        } message: {
+            Text("The folder is deleted, including uncommitted changes. The branch stays.")
         }
     }
+
 
     private var actionBar: some View {
         HStack(spacing: 6) {
@@ -84,8 +72,14 @@ struct TaskRowView: View {
         if row.actions.contains(.cancel) {
             Button("Cancel task", role: .destructive) { Task { await model.cancel(row.id) } }
         }
+        if row.actions.contains(.retry) {
+            Button("Retry stage") { Task { await model.retry(row.id) } }
+        }
         if row.actions.contains(.openWorktree) {
             Button("Open worktree in Finder") { model.openWorktree(row.id) }
+        }
+        if row.actions.contains(.removeWorktree) {
+            Button("Remove worktree...", role: .destructive) { confirmingRemoval = true }
         }
     }
 }

@@ -9,7 +9,8 @@ import Observation
 /// The two decisions on a plan; `WorkflowControlling` provides them.
 @MainActor
 protocol TaskDeciding: AnyObject {
-    func approve(_ id: UUID) async
+    /// True when the engine accepted the approval; false leaves the task where it was (the error is reported there).
+    func approve(_ id: UUID) async -> Bool
     func cancel(_ id: UUID) async
 }
 
@@ -50,11 +51,12 @@ final class PlanApprovalViewModel {
         }
     }
 
-    /// Only the first decision counts; both buttons are disabled afterwards.
+    /// Only the first accepted decision counts; a failed approval re-enables both buttons (TD-111).
+    /// Complexity: O(1) time, O(1) space
     func approve() async {
         guard canAct else { return }
         hasActed = true
-        await decider.approve(task.id)
+        if await decider.approve(task.id) == false { hasActed = false }
     }
 
     func cancelTask() async {

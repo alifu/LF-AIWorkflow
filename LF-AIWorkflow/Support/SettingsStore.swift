@@ -60,6 +60,7 @@ final class SettingsStore {
         static let artStyle = "settings.artStyle"
         static let appearance = "settings.appearance"
         static let peekEnabled = "settings.peekEnabled"
+        static let alertsEnabled = "settings.alertsEnabled"
         static let hotkey = "settings.hotkey"
         static let editorChoice = "settings.editorChoice"
         static let stageModels = "settings.stageModels"
@@ -83,6 +84,10 @@ final class SettingsStore {
     }
     var peekEnabled: Bool = true {
         didSet { defaults.set(peekEnabled, forKey: Keys.peekEnabled) }
+    }
+    /// Whether the app may raise alerts when a task needs the user. Persisted; defaults on.
+    var alertsEnabled: Bool = true {
+        didSet { defaults.set(alertsEnabled, forKey: Keys.alertsEnabled) }
     }
     var hotkey: HotkeySpec = .default {
         didSet {
@@ -188,6 +193,7 @@ final class SettingsStore {
         artStyle = Self.enumValue(stored, Keys.artStyle, fallback: .classic)
         appearance = Self.enumValue(stored, Keys.appearance, fallback: .system)
         peekEnabled = stored.object(forKey: Keys.peekEnabled) as? Bool ?? true
+        alertsEnabled = stored.object(forKey: Keys.alertsEnabled) as? Bool ?? true
         hotkey = stored.data(forKey: Keys.hotkey)
             .flatMap { try? JSONDecoder().decode(HotkeySpec.self, from: $0) }
             .flatMap { HotkeySpec.presets.contains($0) ? $0 : nil } ?? .default

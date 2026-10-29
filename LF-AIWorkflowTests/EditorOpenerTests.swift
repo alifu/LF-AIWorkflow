@@ -11,8 +11,9 @@ import Foundation
 final class SpyURLOpener: URLOpening {
     private(set) var opened: [URL] = []
     private(set) var revealed: [URL] = []
+    private(set) var bundleIdentifiers: [String?] = []
     var result = true
-    func open(_ url: URL) -> Bool { opened.append(url); return result }
+    func open(_ url: URL, bundleIdentifier: String?) -> Bool { opened.append(url); bundleIdentifiers.append(bundleIdentifier); return result }
     func reveal(_ url: URL) { revealed.append(url) }
 }
 
@@ -223,5 +224,89 @@ final class SpyURLOpener: URLOpening {
         let spy = SpyURLOpener()
         #expect(EditorOpener(backend: spy).open(path: "link.swift", line: nil, within: root))
         #expect(spy.opened.map(\.lastPathComponent) == ["real.swift"])
+    }
+}
+
+@MainActor
+final class SpyLineJumper: LineJumping {
+    private(set) var jumps: [(executable: String, arguments: [String])] = []
+    var result = true
+    func jump(executable: String, arguments: [String]) -> Bool { jumps.append((executable, arguments)); return result }
+}
+
+@Suite struct EditorChoiceTests {
+    @Test func bundleIdentifiers() {
+        #expect(EditorChoice.systemDefault.bundleIdentifier == nil)
+        #expect(EditorChoice.xcode.bundleIdentifier == "com.apple.dt.Xcode")
+        #expect(EditorChoice.vscode.bundleIdentifier == "com.microsoft.VSCode")
+    }
+
+    @Test func xedLineJumpArgvIsPlainArguments() {
+        let jump = EditorChoice.xcode.lineJump(path: "/p/a b.swift", line: 12)
+        #expect(jump?.executable == "/usr/bin/xed")
+        #expect(jump?.arguments == ["--line", "12", "/p/a b.swift"])
+    }
+
+    @Test func vscodeLineJumpUsesGotoForm() {
+        let jump = EditorChoice.vscode.lineJump(path: "/p/a.swift", line: 3)
+        #expect(jump?.arguments == ["-g", "/p/a.swift:3"])
+    }
+
+    @Test func noLineJumpForDefaultOrBadLine() {
+        #expect(EditorChoice.systemDefault.lineJump(path: "/p/a.swift", line: 3) == nil)
+        #expect(EditorChoice.xcode.lineJump(path: "/p/a.swift", line: 0) == nil)
+        #expect(EditorChoice.xcode.lineJump(path: "/p/a.swift", line: -2) == nil)
+        #expect(EditorChoice.xcode.lineJump(path: "-x", line: 2) == nil)
+    }
+}
+
+@MainActor
+@Suite struct EditorOpenerChoiceTests {
+    private func file() throws -> URL {
+        let root = try TestEnv.makeTempDir()
+        try TestEnv.write(root, "a.swift", "x")
+        return root
+    }
+
+    @Test func opensWithTheChosenEditorBundle() throws {
+        let root = try file()
+        let spy = SpyURLOpener()
+        let opener = EditorOpener(backend: spy, choice: { .vscode }, jumper: SpyLineJumper())
+        #expect(opener.open(path: "a.swift", line: nil, within: root))
+        #expect(spy.bundleIdentifiers == ["com.microsoft.VSCode"])
+    }
+
+    @Test func defaultChoiceUsesNoBundle() throws {
+        let root = try file()
+        let spy = SpyURLOpener()
+        #expect(EditorOpener(backend: spy, choice: { .systemDefault }, jumper: SpyLineJumper()).open(path: "a.swift", line: 4, within: root))
+        #expect(spy.bundleIdentifiers == [nil])
+    }
+
+    @Test func jumpsToTheLineWhenTheEditorSupportsIt() throws {
+        let root = try file()
+        let spy = SpyURLOpener()
+        let jumper = SpyLineJumper()
+        #expect(EditorOpener(backend: spy, choice: { .xcode }, jumper: jumper).open(path: "a.swift", line: 7, within: root))
+        #expect(jumper.jumps.count == 1)
+        #expect(jumper.jumps.first?.arguments.prefix(2) == ["--line", "7"])
+        #expect(spy.opened.isEmpty)
+    }
+
+    @Test func fallsBackToPlainOpenWhenTheJumpFails() throws {
+        let root = try file()
+        let spy = SpyURLOpener()
+        let jumper = SpyLineJumper()
+        jumper.result = false
+        #expect(EditorOpener(backend: spy, choice: { .xcode }, jumper: jumper).open(path: "a.swift", line: 7, within: root))
+        #expect(spy.opened.count == 1)
+    }
+
+    @Test func storedChoiceReadsSettings() {
+        let suite = "editor-choice-\(UUID().uuidString)"
+        #expect(EditorChoice.stored(suiteName: suite) == .systemDefault)
+        SettingsStore(suiteName: suite).editorChoice = .xcode
+        #expect(EditorChoice.stored(suiteName: suite) == .xcode)
+        UserDefaults().removePersistentDomain(forName: suite)
     }
 }

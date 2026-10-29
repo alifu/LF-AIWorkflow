@@ -61,6 +61,21 @@ struct PTYProcessTests {
         #expect(throws: LFCoreError.posix(ENOENT)) { try PTYProcess.spawn(inv) }
     }
 
+    @Test func failedWriteCapturesErrnoInsideTheClosure() {
+        let outcome = PTYProcess.attemptWrite(Data("abc".utf8)) { _ in
+            errno = EAGAIN
+            return -1
+        }
+        #expect(outcome.written == -1)
+        #expect(outcome.failure == EAGAIN)
+    }
+
+    @Test func successfulWriteReportsNoFailure() {
+        let outcome = PTYProcess.attemptWrite(Data("abc".utf8)) { $0.count }
+        #expect(outcome.written == 3)
+        #expect(outcome.failure == 0)
+    }
+
     @Test func exitedChildIsReaped() async throws {
         let p = try PTYProcess.spawn(Self.shell("exit 3"))
         let pid = p.pid

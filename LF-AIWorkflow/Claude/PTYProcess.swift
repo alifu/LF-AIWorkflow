@@ -46,11 +46,22 @@ nonisolated final class PTYProcess: @unchecked Sendable {
         if let handle { lf_pty_destroy(handle) }
     }
 
+    /// `spawn` run off the cooperative pool (see `SpawnGate.runOffPool`): the spawn gate and the exec wait can
+    /// block for a long time under load, and that must not park a Swift concurrency thread.
+    /// Complexity: O(argc + envc) time, O(argc + envc) space
+    static func spawnOffPool(_ invocation: ProcessInvocation, cols: UInt16 = 200, rows: UInt16 = 50) async throws(LFCoreError) -> PTYProcess {
+        try await SpawnGate.runOffPool { () throws(LFCoreError) -> PTYProcess in
+            try spawn(invocation, cols: cols, rows: rows)
+        }
+    }
+
     /// Spawns the child (inside `SpawnGate`) with a stdin pipe and starts the pump.
     /// Complexity: O(argc + envc) time, O(argc + envc) space
     static func spawn(_ invocation: ProcessInvocation, cols: UInt16 = 200, rows: UInt16 = 50) throws(LFCoreError) -> PTYProcess {
-        let argv = CStringArray([invocation.executable.path] + invocation.arguments)
-        let envp = CStringArray(invocation.environment.map { "\($0.key)=\($0.value)" })
+        guard let argv = CStringArray([invocation.executable.path] + invocation.arguments),
+              let envp = CStringArray(invocation.environment.map({ "\($0.key)=\($0.value)" })) else {
+            throw .posix(ENOMEM)
+        }
         let cwd = invocation.workingDirectory.path
         let created: (handle: OpaquePointer?, error: Int32) = withExtendedLifetime((argv, envp)) {
             cwd.withCString { cwdPtr in
@@ -102,16 +113,27 @@ nonisolated final class PTYProcess: @unchecked Sendable {
         queue.async { [self] in pump() }
     }
 
+    /// One write attempt over `pending`; `failure` is the errno read inside the write closure (0 when `written > 0`),
+    /// so no later call can overwrite it (TD-114).
+    /// Complexity: O(n) time, O(1) space (n = bytes handed to `write`, which may copy them)
+    static func attemptWrite(_ pending: Data, _ write: (UnsafeRawBufferPointer) -> Int) -> (written: Int, failure: Int32) {
+        pending.withUnsafeBytes { bytes in
+            let written = write(bytes)
+            return (written, written > 0 ? 0 : errno)
+        }
+    }
+
     /// Writes as much pending stdin as the pipe takes; EOF once done or on EPIPE.
+    /// Complexity: O(p) time, O(1) space (p = pending stdin bytes)
     private func pushStdin(_ handle: OpaquePointer) {
         guard !stdinClosed else { return }
         while !pendingStdin.isEmpty {
-            let written = pendingStdin.withUnsafeBytes { lf_pty_write(handle, $0.baseAddress, $0.count) }
+            let (written, failure) = Self.attemptWrite(pendingStdin) { lf_pty_write(handle, $0.baseAddress, $0.count) }
             if written > 0 {
                 pendingStdin = pendingStdin.dropFirst(written).withUnsafeBytes { Data($0) }
                 continue
             }
-            if errno == EAGAIN || errno == EINTR { return }
+            if failure == EAGAIN || failure == EINTR { return }
             pendingStdin = Data()  // EPIPE or hard error: the child no longer reads
         }
         _ = lf_pty_send_eof(handle)

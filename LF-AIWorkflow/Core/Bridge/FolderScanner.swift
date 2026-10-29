@@ -48,7 +48,11 @@ nonisolated enum FolderScanner {
     /// Complexity: O(F + total bytes) time, O(F) space
     static func scan(_ root: URL, options: Options = Options()) throws -> [ScannedFile] {
         let box = Box()
-        let exts = options.extensions.isEmpty ? nil : CStringArray(options.extensions)
+        var exts: CStringArray?
+        if !options.extensions.isEmpty {
+            guard let made = CStringArray(options.extensions) else { throw LFCoreError.posix(ENOMEM) }
+            exts = made
+        }
         let count: Int = try root.withUnsafeFileSystemRepresentation { path in
             guard let path else { throw LFCoreError.posix(EINVAL) }
             return try withExtendedLifetime((box, exts)) {
@@ -64,7 +68,7 @@ nonisolated enum FolderScanner {
                 return n
             }
         }
-        precondition(count == box.files.count)
+        assert(count == box.files.count, "lf_scan_walk count disagrees with collected files")
         return box.files
     }
 }

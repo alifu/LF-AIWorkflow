@@ -33,6 +33,9 @@ struct HostPolicyTests {
         "http://[ff02::1]/", "http://[::ffff:127.0.0.1]/", "http://[::ffff:7f00:1]/",
         "http://[::ffff:10.0.0.1]/", "http://[::127.0.0.1]/", "http://[64:ff9b::7f00:1]/",
         "http://[2002:7f00:1::]/",
+        "http://192.0.2.1/", "http://198.51.100.7/", "http://203.0.113.9/",
+        "http://[2001::1]/", "http://[2001:0:4136:e378::1]/", "http://[2001:db8::1]/",
+        "http://[64:ff9b:1::1]/", "http://[64:ff9b:1:2::3]/",
         "https://example.com:8080/", "http://example.com:22/",
     ])
     func blocks(_ s: String) throws {
