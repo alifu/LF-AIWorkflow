@@ -12,6 +12,8 @@ final class HoverController {
     private(set) var state: NotchPanelState = .collapsed
     /// True while the composer or a sheet has typing focus (the panel then must not collapse and may become key).
     private(set) var isFocusHeld = false
+    /// How the panel was last expanded: `.hover` only for a pointer-timer expand, `.explicit` for hotkey, click or pin.
+    private(set) var expandReason: ExpandReason = .explicit
 
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private let expandDelay: Duration
@@ -36,10 +38,12 @@ final class HoverController {
         switch state {
         case .peek:
             cancelPeek()
+            expandReason = .hover
             state = .expanded
         case .collapsed:
             hoverTask = schedule(after: expandDelay) { controller in
                 guard controller.pointerInside, controller.state == .collapsed else { return }
+                controller.expandReason = .hover
                 controller.state = .expanded
             }
         case .expanded, .pinned:
@@ -61,6 +65,7 @@ final class HoverController {
         if isPinned {
             cancelHover()
             cancelPeek()
+            expandReason = .explicit
             state = .pinned
         } else if state == .pinned {
             state = .expanded
@@ -105,7 +110,10 @@ final class HoverController {
     func expand() {
         cancelHover()
         cancelPeek()
+        let wasOpen = state == .expanded
+        expandReason = .explicit
         if state == .collapsed || state == .peek { state = .expanded }
+        else if wasOpen { state = .expanded }
     }
 
     // MARK: - Dismissal (Esc, click outside)
@@ -149,7 +157,9 @@ final class HoverController {
         cancelHover()
         cancelPeek()
         switch state {
-        case .collapsed, .peek: state = .expanded
+        case .collapsed, .peek:
+            expandReason = .explicit
+            state = .expanded
         case .expanded, .pinned: state = .collapsed
         }
     }

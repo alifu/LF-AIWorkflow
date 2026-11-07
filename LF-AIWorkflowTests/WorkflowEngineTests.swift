@@ -56,7 +56,7 @@ final class Harness: Sendable {
     init(settings: EngineSettings = Harness.settings(), tests: FakeTestRunner = FakeTestRunner(),
          graph: FakeGraph = FakeGraph(), worktreeError: GitError? = nil, recording: Bool = true,
          graphWait: Duration = .seconds(60), ledger: DayTokenLedger? = nil,
-         store: (any TaskPersisting)? = nil) throws {
+         store: (any TaskPersisting)? = nil, persistDebounce: Duration = .milliseconds(5)) throws {
         dir = try TestEnv.makeTempDir()
         project = dir.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -64,10 +64,9 @@ final class Harness: Sendable {
         self.graph = graph
         worktrees = FakeWorktrees(directory: dir, error: worktreeError)
         engine = WorkflowEngine(
-            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees, log: log, graphWait: graphWait, ledger: ledger, store: store),
+            dependencies: EngineDependencies(claude: claude, tests: tests, graph: graph, git: git, worktrees: worktrees, log: log, graphWait: graphWait, ledger: ledger, store: store, persistDebounce: persistDebounce),
             settings: settings)
-        // `updates` has one consumer: tests that attach a view model pass `recording: false`.
-        recorder = UpdateRecorder(recording ? engine.updates : AsyncStream { $0.finish() })
+        recorder = UpdateRecorder(recording ? engine.hub.subscribe() : AsyncStream { $0.finish() })
     }
 
     deinit { try? FileManager.default.removeItem(at: dir) }
@@ -87,6 +86,19 @@ final class Harness: Sendable {
 
 @Suite(.timeLimit(.minutes(3)))
 struct WorkflowEngineTests {
+    @Test func cancelledSubscriberIsDroppedAndPublishRetainsNothing() async throws {
+        let h = try Harness(recording: false)
+        let stream = await h.engine.makeUpdates()
+        #expect(h.engine.hub.subscriberCount == 1)
+        let consumer = Task { for await _ in stream {} }
+        consumer.cancel()
+        await consumer.value
+        for _ in 0..<500 where h.engine.hub.subscriberCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(h.engine.hub.subscriberCount == 0)
+        for i in 0..<50 { _ = await h.engine.submit(h.draft(title: "T\(i)")) }  // no consumer: nothing is buffered
+        #expect(h.engine.hub.subscriberCount == 0)
+    }
+
     private static let planSession = "22222222-2222-4222-8222-222222222222"
 
     // MARK: - Activity log

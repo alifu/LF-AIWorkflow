@@ -153,6 +153,7 @@ struct EnginePersistenceTests {
         let first = try Harness(store: store)
         let id = await first.engine.submit(first.draft())
         #expect(await first.recorder.wait(.awaitingApproval))
+        await first.engine.stop()
         // A second engine over the same file: the approval-waiting task survives, a running one would be parked.
         let second = try Harness(store: store)
         #expect(await second.engine.restore() == 1)
@@ -167,6 +168,7 @@ struct EnginePersistenceTests {
         let first = try Harness(settings: Harness.settings(useWorktree: false), store: store)
         let id = await first.engine.submit(first.draft())
         #expect(await first.recorder.wait(.awaitingApproval))
+        await first.engine.stop()
         // Simulate a relaunch while Code was running: the saved task is in .code with its base commit.
         let saved = try #require(store.load().first { $0.id == id }).with(state: .code)
         #expect(saved.baseCommit == "snap456")

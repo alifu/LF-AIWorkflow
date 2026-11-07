@@ -3,6 +3,7 @@
 //  LF-AIWorkflowTests
 //
 
+import AppKit
 import SwiftUI
 import Testing
 @testable import LF_AIWorkflow
@@ -78,6 +79,21 @@ struct ThemeContrastTests {
         for theme in themes {
             let names = theme.allTextPairs(for: .dark).map(\.name)
             #expect(Set(names).count == names.count, "\(theme.id)")
+        }
+    }
+}
+
+@MainActor
+@Suite struct ClassicAccentTests {
+    @Test func classicAccentResolvesToTheSystemAccent() {
+        for scheme in [ColorScheme.light, .dark] {
+            #expect(AppTheme.classic.accentNSColor(for: scheme) == NSColor.controlAccentColor)
+        }
+    }
+
+    @Test func popArtAccentStaysItsFixedToken() {
+        for scheme in [ColorScheme.light, .dark] {
+            #expect(AppTheme.popArt.accentNSColor(for: scheme) == AppTheme.popArt.palette(for: scheme).accent.nsColor)
         }
     }
 }

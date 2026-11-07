@@ -11,16 +11,16 @@ import AppKit
 @Suite struct NotchPanelTests {
     @Test func losingKeyabilityResignsKeyStatus() {
         let panel = NotchPanel()
-        panel.setKeyable(true)
+        panel.setKeyable(true, takeKey: true)
         #expect(panel.canBecomeKey)
-        panel.setKeyable(false)
+        panel.setKeyable(false, takeKey: false)
         #expect(!panel.canBecomeKey)
         #expect(panel.resignKeyCount == 1)
     }
 
     @Test func stayingNonKeyableDoesNotResignRepeatedly() {
         let panel = NotchPanel()
-        panel.setKeyable(false)
+        panel.setKeyable(false, takeKey: false)
         #expect(panel.resignKeyCount == 0)
     }
 }

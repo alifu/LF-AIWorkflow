@@ -38,18 +38,20 @@ nonisolated enum CommandRunner {
         let run = RunningCommand(maxBytes: maxOutputBytes, timeout: timeout)
         // Off the cooperative pool: the gate may be held by another spawn for a long exec (TD-055).
         let spawned = try await SpawnGate.runOffPool { () throws(CommandError) -> Spawned in
-            try SpawnGate.withLock { () throws(CommandError) -> Spawned in
-                let process = Process()
-                process.executableURL = inv.executable
-                process.arguments = inv.arguments
-                process.environment = inv.environment
-                process.currentDirectoryURL = inv.workingDirectory
-                process.terminationHandler = { [run] proc in
-                    let signalled = proc.terminationReason == .uncaughtSignal
-                    run.exited(status: signalled ? 128 + proc.terminationStatus : proc.terminationStatus)
-                }
-                // Pipes are created, marked close-on-exec, handed to the child and their child ends closed all
-                // under the gate, so no concurrent spawn can inherit any of these descriptors (TD-014).
+            let process = Process()
+            process.executableURL = inv.executable
+            process.arguments = inv.arguments
+            process.environment = inv.environment
+            process.currentDirectoryURL = inv.workingDirectory
+            process.terminationHandler = { [run] proc in
+                let signalled = proc.terminationReason == .uncaughtSignal
+                run.exited(status: signalled ? 128 + proc.terminationStatus : proc.terminationStatus)
+            }
+            // Pipes are created, marked close-on-exec and the child spawned under the gate, so no concurrent spawn
+            // (e.g. a forkpty window) can inherit them. Whether Foundation's spawn closes non-CLOEXEC parent
+            // descriptors varies (a probe test leaked the fd when run alone but not in the full suite), so `process.run()`
+            // stays under the gate (TD-120).
+            return try SpawnGate.withLock { () throws(CommandError) -> Spawned in
                 let pipes = Pipes.make(hasStdin: !inv.stdin.isEmpty)
                 process.standardInput = pipes.stdin ?? FileHandle.nullDevice
                 process.standardOutput = pipes.stdout

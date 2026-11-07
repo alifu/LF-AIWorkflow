@@ -13,6 +13,12 @@ struct NotchRootView: View {
     let router: PanelRouter
     let layout: NotchLayoutModel
 
+    /// Fires when the animation toward the given state has finished; the window frame shrinks then.
+    var onStateSettled: (NotchPanelState) -> Void = { _ in }
+
+    /// The state the content shows; follows `hover.state` through an animation so completion can be observed.
+    @State private var shown: NotchPanelState?
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(SettingsStore.self) private var settings: SettingsStore?
 
@@ -20,15 +26,20 @@ struct NotchRootView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(HoverTrackingView(onEnter: hover.pointerEntered, onExit: hover.pointerExited))
-            .animation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8),
-                       value: hover.state)
+            .onChange(of: hover.state) { _, next in
+                withAnimation(animation, completionCriteria: .logicallyComplete) {
+                    shown = next
+                } completion: {
+                    onStateSettled(next)
+                }
+            }
             .onChange(of: model.peek) { _, message in
                 if message != nil { hover.showPeek(enabled: settings?.peekEnabled ?? true) }
             }
     }
 
     @ViewBuilder private var content: some View {
-        switch hover.state {
+        switch shown ?? hover.state {
         case .collapsed:
             CollapsedView(kind: layout.kind, summary: model.summary, onActivate: hover.toggleFromHotkey)
                 .transition(.opacity)
@@ -41,6 +52,10 @@ struct NotchRootView: View {
             ExpandedView(model: model, hover: hover, router: router, topInset: layout.topInset)
                 .transition(popTransition)
         }
+    }
+
+    private var animation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8)
     }
 
     private var popTransition: AnyTransition {

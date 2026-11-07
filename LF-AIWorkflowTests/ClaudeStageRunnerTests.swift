@@ -7,7 +7,7 @@ import Testing
 import Foundation
 @testable import LF_AIWorkflow
 
-@Suite(.timeLimit(.minutes(2)))
+@Suite(.serialized, .timeLimit(.minutes(2)))
 struct ClaudeStageRunnerTests {
     private let policy = StagePolicy.defaults(testCommand: nil)
 

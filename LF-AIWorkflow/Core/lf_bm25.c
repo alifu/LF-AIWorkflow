@@ -37,48 +37,115 @@ static unsigned char lower(unsigned char c) {
     return (c >= 'A' && c <= 'Z') ? (unsigned char)(c + 32) : c;
 }
 
-/// Simple lower-case mapping for the 2-byte range (Latin-1, Latin Extended-A, Greek, Cyrillic).
-/// Every mapping stays within two UTF-8 bytes, so folded text has the same byte length.
-/// Complexity: O(1) time, O(1) space
+/// Table of simple upper-to-lower ranges: [lo, hi] shifted by delta, or every other code point
+/// (stride 2, upper = even offset from lo) when delta is 1 with stride flag.
+typedef struct { uint32_t lo, hi; int32_t delta; uint8_t alt; } fold_range;
+
+static const fold_range FOLD_RANGES[] = {
+    {0xC0, 0xDE, 32, 0},        /* Latin-1 (0xD7 excluded below) */
+    {0x391, 0x3A1, 32, 0},      /* Greek (U+03A2 is unassigned) */
+    {0x3A3, 0x3A9, 32, 0},
+    {0x400, 0x40F, 80, 0},      /* Cyrillic */
+    {0x410, 0x42F, 32, 0},      /* Cyrillic */
+    {0x460, 0x481, 1, 1},       /* Cyrillic historic */
+    {0x48A, 0x4BF, 1, 1},       /* Cyrillic extended */
+    {0x4D0, 0x52F, 1, 1},       /* Cyrillic extended */
+    {0x531, 0x556, 48, 0},      /* Armenian */
+    {0x10A0, 0x10C5, 7264, 0},  /* Georgian Asomtavruli -> Nuskhuri */
+    {0x1C90, 0x1CBA, -3008, 0}, /* Georgian Mtavruli -> Mkhedruli */
+    {0x1CBD, 0x1CBF, -3008, 0},
+    {0x1E00, 0x1E95, 1, 1},     /* Latin Extended Additional */
+    {0x1EA0, 0x1EFF, 1, 1},
+    {0x1F08, 0x1F0F, -8, 0},    /* Greek Extended */
+    {0x1F18, 0x1F1D, -8, 0},
+    {0x1F28, 0x1F2F, -8, 0},
+    {0x1F38, 0x1F3F, -8, 0},
+    {0x1F48, 0x1F4D, -8, 0},
+    {0x1F68, 0x1F6F, -8, 0},
+    {0x10400, 0x10427, 40, 0},  /* Deseret */
+};
+
+/// Simple lower-case mapping. Fullwidth Latin letters fold to ASCII (the only length change).
+/// Complexity: O(1) time (fixed-size table), O(1) space
 static uint32_t fold_cp(uint32_t cp) {
-    if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) return cp + 32;
+    if (cp < 0xC0) return cp;
+    if (cp >= 0xFF21 && cp <= 0xFF3A) return cp - 0xFF21 + 'a';
+    if (cp >= 0xFF41 && cp <= 0xFF5A) return cp - 0xFF41 + 'a';
+    if (cp >= 0xFF10 && cp <= 0xFF19) return cp - 0xFF10 + '0';
+    if (cp == 0xD7) return cp;
     if (cp >= 0x100 && cp <= 0x17F) {
         if (cp == 0x130 || cp == 0x131 || cp == 0x138 || cp == 0x149 || cp == 0x17F) return cp;
         if (cp == 0x178) return 0xFF;
         int upper = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E) ? (cp & 1) : !(cp & 1);
         return upper ? cp + 1 : cp;
     }
-    if (cp >= 0x391 && cp <= 0x3A9 && cp != 0x3A2) return cp + 32;
-    if (cp >= 0x410 && cp <= 0x42F) return cp + 32;
-    if (cp >= 0x400 && cp <= 0x40F) return cp + 80;
+    for (size_t r = 0; r < sizeof(FOLD_RANGES) / sizeof(FOLD_RANGES[0]); r++) {
+        const fold_range *f = &FOLD_RANGES[r];
+        if (cp < f->lo || cp > f->hi) continue;
+        if (f->alt) return ((cp - f->lo) & 1) ? cp : cp + 1;
+        return (uint32_t)((int32_t)cp + f->delta);
+    }
     return cp;
 }
 
-/// Folds the character at s[i] into out; returns bytes consumed (out gets the same count).
-/// Invalid or longer sequences pass through byte by byte.
+/// Decodes a well-formed 2..4 byte sequence at s[i] (never reads past len).
+/// Returns bytes consumed and sets *cp, or 0 when invalid/truncated/overlong/surrogate.
 /// Complexity: O(1) time, O(1) space
-static size_t fold_char(const char *s, size_t len, size_t i, unsigned char out[2]) {
+static size_t decode_utf8(const char *s, size_t len, size_t i, uint32_t *cp) {
     unsigned char c = (unsigned char)s[i];
-    if (c >= 0xC2 && c <= 0xDF && i + 1 < len && ((unsigned char)s[i + 1] & 0xC0) == 0x80) {
-        uint32_t cp = ((uint32_t)(c & 0x1F) << 6) | ((unsigned char)s[i + 1] & 0x3F);
-        uint32_t f = fold_cp(cp);
-        out[0] = (unsigned char)(0xC0 | (f >> 6));
-        out[1] = (unsigned char)(0x80 | (f & 0x3F));
-        return 2;
+    size_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC2 ? 2 : 0;
+    if (n == 0 || c > 0xF4 || len - i < n) return 0;
+    uint32_t v = c & (0x7F >> n);
+    for (size_t k = 1; k < n; k++) {
+        unsigned char cc = (unsigned char)s[i + k];
+        if ((cc & 0xC0) != 0x80) return 0;
+        v = (v << 6) | (cc & 0x3F);
     }
-    out[0] = lower(c);
-    return 1;
+    if ((n == 3 && (v < 0x800 || (v >= 0xD800 && v <= 0xDFFF))) || (n == 4 && (v < 0x10000 || v > 0x10FFFF)))
+        return 0;
+    *cp = v;
+    return n;
 }
 
-/// Complexity: O(len) time, O(1) space
-static uint64_t hash_lower(const char *s, size_t len) {
-    uint64_t h = 14695981039346656037ULL;
-    for (size_t i = 0; i < len;) {
-        unsigned char o[2];
-        size_t n = fold_char(s, len, i, o);
-        for (size_t j = 0; j < n; j++) { h ^= o[j]; h *= 1099511628211ULL; }
-        i += n;
+/// Folds the character at s[i] into out; returns bytes consumed and sets *outn to bytes written.
+/// Invalid or truncated sequences pass through byte by byte (ASCII lower-cased).
+/// Complexity: O(1) time, O(1) space
+static size_t fold_char(const char *s, size_t len, size_t i, unsigned char out[4], size_t *outn) {
+    uint32_t cp;
+    size_t n = decode_utf8(s, len, i, &cp);
+    if (n == 0) {
+        out[0] = lower((unsigned char)s[i]);
+        *outn = 1;
+        return 1;
     }
+    uint32_t f = fold_cp(cp);
+    if (f < 0x80) { out[0] = (unsigned char)f; *outn = 1; }
+    else if (f < 0x800) {
+        out[0] = (unsigned char)(0xC0 | (f >> 6)); out[1] = (unsigned char)(0x80 | (f & 0x3F)); *outn = 2;
+    } else if (f < 0x10000) {
+        out[0] = (unsigned char)(0xE0 | (f >> 12)); out[1] = (unsigned char)(0x80 | ((f >> 6) & 0x3F));
+        out[2] = (unsigned char)(0x80 | (f & 0x3F)); *outn = 3;
+    } else {
+        out[0] = (unsigned char)(0xF0 | (f >> 18)); out[1] = (unsigned char)(0x80 | ((f >> 12) & 0x3F));
+        out[2] = (unsigned char)(0x80 | ((f >> 6) & 0x3F)); out[3] = (unsigned char)(0x80 | (f & 0x3F));
+        *outn = 4;
+    }
+    return n;
+}
+
+/// Hash of the folded token; *flen receives the folded byte length.
+/// Complexity: O(len) time, O(1) space
+static uint64_t hash_lower(const char *s, size_t len, size_t *flen) {
+    uint64_t h = 14695981039346656037ULL;
+    size_t total = 0;
+    for (size_t i = 0; i < len;) {
+        unsigned char o[4];
+        size_t on;
+        i += fold_char(s, len, i, o, &on);
+        for (size_t j = 0; j < on; j++) { h ^= o[j]; h *= 1099511628211ULL; }
+        total += on;
+    }
+    *flen = total;
     return h;
 }
 
@@ -96,25 +163,28 @@ static int next_token(const char *s, size_t len, size_t *pos, size_t *start, siz
     return 0;
 }
 
-static int term_matches(const lf_bm25_index *ix, const term *t, const char *s, size_t len, uint64_t h) {
-    if (t->hash != h || t->len != len) return 0;
+static int term_matches(const lf_bm25_index *ix, const term *t, const char *s, size_t len, uint64_t h,
+                        size_t flen) {
+    if (t->hash != h || t->len != flen) return 0;
+    size_t w = 0;
     for (size_t i = 0; i < len;) {
-        unsigned char o[2];
-        size_t n = fold_char(s, len, i, o);
-        for (size_t j = 0; j < n; j++)
-            if ((unsigned char)ix->arena[t->off + i + j] != o[j]) return 0;
-        i += n;
+        unsigned char o[4];
+        size_t on;
+        i += fold_char(s, len, i, o, &on);
+        for (size_t j = 0; j < on; j++)
+            if ((unsigned char)ix->arena[t->off + w + j] != o[j]) return 0;
+        w += on;
     }
     return 1;
 }
 
 /// Complexity: O(1) expected time, O(1) space
-static long find_term(const lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
+static long find_term(const lf_bm25_index *ix, const char *s, size_t len, uint64_t h, size_t flen) {
     size_t mask = ix->nslots - 1;
     for (size_t i = (size_t)h & mask;; i = (i + 1) & mask) {
         size_t v = ix->slots[i];
         if (v == 0) return -1;
-        if (term_matches(ix, &ix->terms[v - 1], s, len, h)) return (long)(v - 1);
+        if (term_matches(ix, &ix->terms[v - 1], s, len, h, flen)) return (long)(v - 1);
     }
 }
 
@@ -136,7 +206,7 @@ static int grow_slots(lf_bm25_index *ix) {
 }
 
 /// Complexity: O(1) amortized time, O(len) space
-static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
+static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h, size_t flen) {
     if (ix->nterms >= SIZE_MAX / 2 - 1) return -1;
     if ((ix->nterms + 1) * 2 > ix->nslots && grow_slots(ix) != 0) return -1;
     if (ix->nterms == ix->tcap) {
@@ -147,27 +217,29 @@ static long add_term(lf_bm25_index *ix, const char *s, size_t len, uint64_t h) {
         ix->terms = nt;
         ix->tcap = nc;
     }
-    if (len > SIZE_MAX / 4 - ix->alen) return -1;
-    if (ix->alen + len > ix->acap) {
+    if (flen > SIZE_MAX / 4 - ix->alen) return -1;
+    if (ix->alen + flen > ix->acap) {
         size_t nc = ix->acap ? ix->acap * 2 : 1024;
-        while (nc < ix->alen + len) nc *= 2;
+        while (nc < ix->alen + flen) nc *= 2;
         char *na = realloc(ix->arena, nc);
         if (!na) return -1;
         ix->arena = na;
         ix->acap = nc;
     }
+    size_t w = 0;
     for (size_t i = 0; i < len;) {
-        unsigned char o[2];
-        size_t n = fold_char(s, len, i, o);
-        for (size_t j = 0; j < n; j++) ix->arena[ix->alen + i + j] = (char)o[j];
-        i += n;
+        unsigned char o[4];
+        size_t on;
+        i += fold_char(s, len, i, o, &on);
+        for (size_t j = 0; j < on; j++) ix->arena[ix->alen + w + j] = (char)o[j];
+        w += on;
     }
     term *t = &ix->terms[ix->nterms];
     memset(t, 0, sizeof(*t));
     t->off = ix->alen;
-    t->len = len;
+    t->len = flen;
     t->hash = h;
-    ix->alen += len;
+    ix->alen += flen;
     size_t mask = ix->nslots - 1, i = (size_t)h & mask;
     while (ix->slots[i]) i = (i + 1) & mask;
     ix->slots[i] = ++ix->nterms;
@@ -224,9 +296,10 @@ lf_bm25_index *lf_bm25_create(const lf_text_span *chunks, size_t n, double k1, d
         size_t pos = 0, st, tl;
         while (next_token(chunks[c].ptr, chunks[c].len, &pos, &st, &tl)) {
             const char *tok = chunks[c].ptr + st;
-            uint64_t h = hash_lower(tok, tl);
-            long ti = find_term(ix, tok, tl, h);
-            if (ti < 0) ti = add_term(ix, tok, tl, h);
+            size_t fl;
+            uint64_t h = hash_lower(tok, tl, &fl);
+            long ti = find_term(ix, tok, tl, h, fl);
+            if (ti < 0) ti = add_term(ix, tok, tl, h, fl);
             if (ti < 0 || add_posting(&ix->terms[ti], (uint32_t)c) != 0) goto fail;
             if (ix->doclen[c] == UINT32_MAX) { errno = EOVERFLOW; goto fail_keep; }
             ix->doclen[c]++;
@@ -300,7 +373,9 @@ long lf_bm25_query(const lf_bm25_index *ix, const char *q, size_t qlen, size_t k
     if (!acc || !hit) { errno = ENOMEM; goto done; }
     size_t pos = 0, st, tl;
     while (next_token(q, qlen, &pos, &st, &tl)) {
-        long ti = find_term(ix, q + st, tl, hash_lower(q + st, tl));
+        size_t fl;
+        uint64_t qh = hash_lower(q + st, tl, &fl);
+        long ti = find_term(ix, q + st, tl, qh, fl);
         if (ti < 0) continue;
         int dup = 0;
         for (size_t i = 0; i < nseen; i++) if (seen[i] == ti) { dup = 1; break; }

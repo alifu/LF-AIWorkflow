@@ -80,7 +80,7 @@ struct PromptComposer: View {
             .font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color)
             .frame(maxWidth: .infinity, minHeight: 34)
             .background(RoundedRectangle(cornerRadius: theme.smallCornerRadius)
-                .strokeBorder(isDropTargeted ? palette.accent.color : palette.dropBorder.color, style: StrokeStyle(lineWidth: 1, dash: [4])))
+                .strokeBorder(isDropTargeted ? theme.accentColor(for: scheme) : palette.dropBorder.color, style: StrokeStyle(lineWidth: 1, dash: [4])))
             .dropDestination(for: URL.self) { urls, _ in
                 Task { await composer.addDocuments(urls) }
                 return !urls.isEmpty

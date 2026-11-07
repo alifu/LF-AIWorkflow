@@ -72,11 +72,13 @@ nonisolated struct GitClient: GitWorking {
 
     /// Like `run(_:in:)`, but every status in `okStatuses` counts as success (`diff --no-index` exits 1 on a difference).
     /// Complexity: O(n) time in output bytes, O(n) space
-    private func run(_ args: [String], in dir: URL, okStatuses: Set<Int32>) async throws(GitError) -> String {
+    private func run(_ args: [String], in dir: URL, okStatuses: Set<Int32> = [0],
+                     extraEnvironment: [String: String] = [:]) async throws(GitError) -> String {
         let executable: URL
         do { executable = try await locators.current().locate(.git) } catch { throw .gitNotFound }
         let invocation = ProcessInvocation(executable: executable, arguments: Self.baseOptions + args,
-                                           environment: environment, workingDirectory: dir, stdin: Data())
+                                           environment: environment.merging(extraEnvironment) { _, new in new },
+                                           workingDirectory: dir, stdin: Data())
         let result: CommandResult
         do {
             result = try await CommandRunner.run(invocation, timeout: timeout)
@@ -100,15 +102,31 @@ nonisolated struct GitClient: GitWorking {
         try await run(["rev-parse", "HEAD"], in: dir).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// `git stash create` records tracked uncommitted work as a dangling commit without touching the tree, index
-    /// or stash list; it prints nothing when the tree is clean, then HEAD is the base. Untracked files are not
-    /// captured (see TD-117). A failure (for example no committer identity) falls back to HEAD.
-    /// Complexity: O(changed files) time, O(1) space
+    /// Records all uncommitted work, tracked and untracked, as a dangling commit without touching the tree, the real
+    /// index or the stash list: a temporary index (`GIT_INDEX_FILE`) is seeded from HEAD, `add -A` stages the tree
+    /// (minus review noise and secret paths) into it, `write-tree` and `commit-tree` make the commit. A clean tree gives HEAD; any failure (for example
+    /// no committer identity) falls back to HEAD.
+    /// Complexity: O(files) time, O(1) space
     func snapshotCommit(in dir: URL) async throws(GitError) -> String {
         let head = try await headCommit(in: dir)
-        let created = (try? await run(["stash", "create"], in: dir))?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let created, created.count == 40, created.allSatisfy(\.isHexDigit) else { return head }
-        return created
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("lf-snapshot-\(UUID().uuidString)")
+        do { try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true) } catch { return head }
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let index = ["GIT_INDEX_FILE": scratch.appendingPathComponent("index").path]
+        do {
+            _ = try await run(["read-tree", head], in: dir, extraEnvironment: index)
+            _ = try await run(["add", "-A", "--", "."] + Self.reviewExcludes + Self.secretExcludes, in: dir,
+                              extraEnvironment: index)
+            let tree = try await run(["write-tree"], in: dir, extraEnvironment: index).trimmingCharacters(in: .whitespacesAndNewlines)
+            let headTree = try await run(["rev-parse", "\(head)^{tree}"], in: dir).trimmingCharacters(in: .whitespacesAndNewlines)
+            if tree == headTree { return head }
+            let created = try await run(["commit-tree", tree, "-p", head, "-m", "lf-aiworkflow review base"], in: dir)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard created.count == 40, created.allSatisfy(\.isHexDigit) else { return head }
+            return created
+        } catch {
+            return head
+        }
     }
 
     /// Complexity: O(1) time, O(1) space
@@ -131,9 +149,11 @@ nonisolated struct GitClient: GitWorking {
             _ = try await run(["add", "-A", "--intent-to-add", "--", "."] + excludes, in: dir)
             return try await run(diffOptions + [base, "--", "."] + excludes, in: dir)
         }
-        var output = try await run(diffOptions + [base, "--", "."] + excludes, in: dir)
         let listing = try await run(["ls-files", "--others", "--exclude-standard", "-z", "--", "."] + excludes, in: dir)
-        let files = listing.split(separator: "\0")
+        let (files, heldByBase) = try await splitUntracked(listing.split(separator: "\0").map(String.init), base: base, in: dir)
+        // Untracked files the snapshot already holds look deleted to `git diff <base>` (they are not in the real index).
+        let hidden = heldByBase.map { ":(exclude,literal)" + $0 }
+        var output = try await run(diffOptions + [base, "--", "."] + excludes + hidden, in: dir)
         var untrackedBytes = 0
         for (index, file) in files.enumerated() {
             if untrackedBytes >= untrackedByteLimit {
@@ -141,7 +161,7 @@ nonisolated struct GitClient: GitWorking {
                 break
             }
             do {
-                let piece = try await run(diffOptions + ["--no-index", "--", "/dev/null", String(file)], in: dir, okStatuses: [0, 1])
+                let piece = try await run(diffOptions + ["--no-index", "--", "/dev/null", file], in: dir, okStatuses: [0, 1])
                 untrackedBytes += piece.utf8.count
                 output += piece
             } catch .commandFailed(_, Self.unreadableStatus, _) {
@@ -149,5 +169,23 @@ nonisolated struct GitClient: GitWorking {
             }
         }
         return output
+    }
+
+    /// Splits untracked files into those new or changed since the base and those the base snapshot already holds
+    /// (TD-117: task-start state, not work to review). Held files whose content changed stay in `changed` too.
+    /// Complexity: O(files) time, O(files) space
+    private func splitUntracked(_ files: [String], base: String, in dir: URL)
+        async throws(GitError) -> (changed: [String], heldByBase: [String]) {
+        guard !files.isEmpty else { return ([], []) }
+        let inBase = Set(try await run(["ls-tree", "-r", "-z", "--name-only", base], in: dir).split(separator: "\0").map(String.init))
+        var changed: [String] = [], held: [String] = []
+        for file in files {
+            guard inBase.contains(file) else { changed.append(file); continue }
+            held.append(file)
+            let current = try? await run(["hash-object", "--no-filters", "--", file], in: dir)
+            let baseline = try? await run(["rev-parse", "\(base):\(file)"], in: dir)
+            if current == nil || current != baseline { changed.append(file) }
+        }
+        return (changed, held)
     }
 }

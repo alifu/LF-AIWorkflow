@@ -16,6 +16,8 @@ nonisolated enum WorkflowError: Error, Sendable, Equatable {
     case taskActive(UUID)
     case noWorktree(UUID)
     case worktreeRemovalFailed(String)
+    /// The task's worktree directory no longer exists (TD-122).
+    case worktreeMissing(String)
 }
 
 /// The legal edges of the task state machine (plan §6) and the guarded `move`.

@@ -130,4 +130,38 @@ struct EngineEntriesTests {
         }
         #expect(await h.engine.task(id)?.worktree != nil)
     }
+
+    // MARK: - TD-122 / TD-132
+
+    @Test func sendToFixWithADeletedWorktreeIsRefusedWithAReason() async throws {
+        let h = try Harness()
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.done))
+        let path = try #require(await h.engine.task(id)?.worktree?.path)
+        try FileManager.default.removeItem(at: path)
+        await #expect(throws: WorkflowError.worktreeMissing(path.path)) {
+            try await h.engine.sendToFix(id, findings: [Self.high])
+        }
+        #expect(await h.engine.task(id)?.state == .done)
+        #expect(h.claude.calls(for: .fix).isEmpty)
+    }
+
+    @Test func failingWhileAwaitingInputThenRetryResumesTheParkedStage() async throws {
+        let small = TokenBudget(perTaskMaxTokens: 400, inlineMaxTokens: 2_000, errorMaxTokens: 1_500, rulesMaxTokens: 800,
+                                promptMaxTokens: TokenBudget.default.promptMaxTokens)
+        let h = try Harness(settings: Harness.settings(budget: small))
+        h.claude.script(.plan, .outcome(FakeClaudeRunner.ok("p", tokens: 50)))
+        h.claude.script(.code, .outcome(FakeClaudeRunner.ok("c", tokens: 500)))
+        let id = try await h.runToCodeStart()
+        #expect(await h.recorder.wait(.awaitingInput))
+        let parked = try #require(await h.engine.task(id))
+        #expect(parked.resumeState == .review)
+        await h.engine.fail(id, .claudeError("boom"))
+        let failed = try #require(await h.engine.task(id))
+        #expect(failed.state == .failed)
+        #expect(failed.retryState == .review)
+        try await h.engine.retry(id)
+        #expect(await h.engine.task(id)?.state != .queued)
+        #expect(!h.recorder.states.suffix(2).contains(.queued))
+    }
 }

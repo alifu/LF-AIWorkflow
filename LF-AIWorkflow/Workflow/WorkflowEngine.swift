@@ -7,14 +7,16 @@ import Foundation
 import os
 
 /// Drives tasks through `queued -> plan -> approval -> code -> (test <-> fix)* -> review -> done`.
-/// All state lives in this actor; every change is a new immutable `WorkflowTask` published on `updates`.
+/// All state lives in this actor; every change is a new immutable `WorkflowTask` published to every `makeUpdates()` stream.
 /// One driver `Task` per running task; `cancel` cancels it, which ends the Claude stream (killing the child)
 /// and the test run. Stage handlers live in `WorkflowEngine+Stages.swift`.
 actor WorkflowEngine {
-    nonisolated let updates: AsyncStream<WorkflowTask>
-    private let continuation: AsyncStream<WorkflowTask>.Continuation
+    /// Live update subscribers; each view-model start gets its own stream (TD-115).
+    nonisolated let hub = UpdateHub()
 
     let deps: EngineDependencies
+    /// All blocking file I/O: debounced task saves, plan/review files, existence checks (TD-123, TD-108).
+    let writer: TaskStoreWriter
     /// Settings for tasks submitted from now on. Tasks already submitted keep their copy in `taskSettings`.
     private(set) var settings: EngineSettings
     /// Snapshot taken at submit; every stage of that task reads it, so a Settings change never reaches a running task.
@@ -34,16 +36,24 @@ actor WorkflowEngine {
 
     init(dependencies: EngineDependencies, settings: EngineSettings) {
         deps = dependencies
+        writer = TaskStoreWriter(store: dependencies.store, debounce: dependencies.persistDebounce)
         self.settings = settings
-        (updates, continuation) = AsyncStream.makeStream(of: WorkflowTask.self, bufferingPolicy: .unbounded)
     }
 
     deinit {
-        continuation.finish()
+        hub.finishAll()
         for driver in drivers.values { driver.cancel() }
     }
 
     // MARK: - Public API
+
+    /// A fresh update stream that starts with every known task (oldest first), then follows live changes.
+    /// Complexity: O(n log n) time, O(n) space (n = known tasks)
+    func makeUpdates() -> AsyncStream<WorkflowTask> {
+        hub.subscribe(replaying: tasks.values.sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) })
+    }
+
+    private func emit(_ task: WorkflowTask) { hub.yield(task) }
 
     /// Complexity: O(1) time, O(1) space
     func submit(_ draft: TaskDraft) -> UUID {
@@ -135,12 +145,12 @@ actor WorkflowEngine {
         return task
     }
 
-    /// Complexity: O(1) time, O(1) space (plus the store write and the yield)
+    /// Complexity: O(1) time, O(1) space (plus the mailbox hand-off and the yield)
     func publish(_ task: WorkflowTask) {
         tasks[task.id] = task
         if task.state.isTerminal { taskSettings[task.id] = nil }
         persist()
-        continuation.yield(task)
+        emit(task)
     }
 
     /// Loads persisted tasks once at launch (call before the first `submit`). Tasks that were mid-stage when
@@ -149,20 +159,28 @@ actor WorkflowEngine {
     /// Returns the number of tasks restored. Per-task budget raises and cached test commands are not persisted.
     /// Complexity: O(n log n) time, O(n) space (n = persisted tasks)
     @discardableResult
-    func restore() -> Int {
-        guard let store = deps.store else { return 0 }
-        let loaded = TaskRestore.interrupted(store.load(), now: Date()).filter { tasks[$0.id] == nil }
+    func restore() async -> Int {
+        guard deps.store != nil else { return 0 }
+        let stored = await writer.load()
+        let loaded = TaskRestore.interrupted(stored, now: Date()).filter { tasks[$0.id] == nil }
         for task in loaded.sorted(by: { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }) {
             tasks[task.id] = task
-            continuation.yield(task)
+            emit(task)
         }
         persist()
         return loaded.count
     }
 
-    /// Complexity: O(n) time, O(n) space (n = tasks, encoded by the store)
+    /// Hands the latest snapshot to the writer, which coalesces and writes it after the debounce.
+    /// Complexity: O(n) time, O(n) space (n = tasks, copied into the mailbox)
     private func persist() {
-        deps.store?.save(Array(tasks.values))
+        writer.schedule(Array(tasks.values))
+    }
+
+    /// Writes the latest task state to disk now. Call on app terminate so the last state is not lost.
+    /// Complexity: O(n log n) time, O(n) space (n = tasks)
+    func stop() async {
+        await writer.flush()
     }
 
     /// Publishes an edited copy without changing the state.
@@ -190,7 +208,9 @@ actor WorkflowEngine {
     /// Complexity: O(log line) time, O(1) space
     func fail(_ id: UUID, _ reason: FailureReason) async {
         let state = tasks[id]?.state
-        guard apply(id, to: .failed, { $0.with(failure: reason).with(retryState: state) }), let state else { return }
+        // A failure raised while parked retries into the parked stage, not `awaitingInput` or `queued` (TD-132).
+        let retryState = state == .awaitingInput ? tasks[id]?.resumeState : state
+        guard apply(id, to: .failed, { $0.with(failure: reason).with(retryState: retryState) }), let state else { return }
         await log(TaskText.failureText(reason), id, state)
     }
 

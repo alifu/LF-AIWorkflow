@@ -7,7 +7,8 @@ import Foundation
 import os
 
 /// Runs an operation but stops waiting for it after a time limit or when the caller is cancelled.
-/// The operation's own task is cancelled in both cases (so a child process can be killed).
+/// The operation's own task is cancelled in both cases (so a child process can be killed) but never awaited: a shared, deduped
+/// operation (GraphifyClient.refresh) may ignore cancellation and is bounded by its own timeout (TD-129 won't fix).
 nonisolated enum BoundedWait {
     private struct State {
         var continuation: CheckedContinuation<Void, Never>?

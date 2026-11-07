@@ -155,6 +155,7 @@ final class SettingsStore {
             let paths = toolPaths.filter { !$0.value.isEmpty }
             if paths != toolPaths { toolPaths = paths; return }
             defaults.set(Self.rawKeyed(toolPaths), forKey: Keys.toolPaths)
+            toolPathStore.set(toolPaths)
         }
     }
 
@@ -180,6 +181,9 @@ final class SettingsStore {
 
     /// `UserDefaults` is not Sendable, so the suite name is kept and the defaults opened per use.
     private let suiteName: String?
+
+    /// Lock-backed mirror of `toolPaths` for locators that must not hop to the MainActor.
+    let toolPathStore = ToolPathStore()
 
     private var defaults: UserDefaults {
         suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
@@ -212,6 +216,7 @@ final class SettingsStore {
             storedCaps.mapValues { SettingsValidation.clamp($0, to: SettingsLimits.promptTokens) }) { _, stored in stored }
         toolPaths = Self.toolKeyed(stored.dictionary(forKey: Keys.toolPaths) as? [String: String] ?? [:])
             .filter { !$0.value.isEmpty }
+        toolPathStore.set(toolPaths)
     }
 
     /// Complexity: O(1) time, O(1) space

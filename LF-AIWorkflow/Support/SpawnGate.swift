@@ -18,8 +18,9 @@ nonisolated enum SpawnGate {
         return try body()
     }
 
-    /// Serial queue for spawns: waiting for the lock or a slow exec parks this thread, never a Swift concurrency thread.
-    private static let spawnQueue = DispatchQueue(label: "com.alifu.LF-AIWorkflow.spawn")
+    /// Concurrent queue for spawns: waiting for the lock or a slow exec parks this thread, never a Swift concurrency
+    /// thread. Concurrent so slow first execs overlap (TD-120); mutual exclusion is `withLock`'s job.
+    private static let spawnQueue = DispatchQueue(label: "com.alifu.LF-AIWorkflow.spawn", attributes: .concurrent)
 
     /// Runs `body` on `spawnQueue` and resumes the caller with its result. Use this from async code: a spawn can
     /// take hundreds of milliseconds, and blocking a cooperative thread for that long starves every other task

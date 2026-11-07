@@ -23,9 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: WorkflowViewModel?
     private var appearanceObserver: AppearanceObserver?
     private var defaultsObserver: Task<Void, Never>?
-    private var frameTask: Task<Void, Never>?
     private var engineSettingsTask: Task<Void, Never>?
     private var frame = PanelFrameTracker()
+    private var shrinkDeadline: Task<Void, Never>?
     private let hover = HoverController()
     private var router = PanelRouter()
     private let layout = NotchLayoutModel()
@@ -34,7 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PanelCollapse.handler = { [hover] in hover.collapse() }
         installStartingPanel()
         Task { [weak self, startup] in
-            let services = await startup.run { await AppComposition.makeServices() }
+            // nil = timed out: the starting panel shows the error state (TD-131)
+            guard let services = await startup.run({ await AppComposition.makeServices() }) else { return }
             self?.install(services)
         }
     }
@@ -42,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// TD-041: the panel appears at once with a "starting" state; `install` swaps in the real content.
     private func installStartingPanel() {
         let panel = NotchPanel()
-        let hosting = NSHostingView(rootView: AnyView(ThemedRoot(settings: AppComposition.settings) { StartingView() }))
+        let hosting = NSHostingView(rootView: AnyView(ThemedRoot(settings: AppComposition.settings) { StartingView(progress: self.startup) }))
         hosting.sizingOptions = []
         panel.contentView = hosting
         appearanceObserver = AppearanceObserver(settings: AppComposition.settings, targets: [panel, hosting])
@@ -59,9 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         defaultsObserver?.cancel()
-        frameTask?.cancel()
         engineSettingsTask?.cancel()
+        shrinkDeadline?.cancel()
         model?.stop()
+        model?.flushPersistence()
         hotkeys?.stop()
         inboxHotkeys?.stop()
         clickOutside.stop()
@@ -76,7 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshResearchState(services.research)
         let (hover, router, layout) = (self.hover, self.router, self.layout)
         hosting?.rootView = AnyView(ThemedRoot(settings: AppComposition.settings) {
-            NotchRootView(model: model, hover: hover, router: router, layout: layout)
+            NotchRootView(model: model, hover: hover, router: router, layout: layout,
+                          onStateSettled: { [weak self] in self?.animationSettled($0) })
         })
         panel?.onEscape = { [hover] composing in hover.escapePressed(isComposingText: composing) }
         let hotkeys = HotkeyManager(
@@ -190,28 +193,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Growing applies at once; shrinking waits for the collapse animation to finish.
+    /// Growing applies at once; shrinking waits for the root view's animation-completion callback (TD-040).
     private func panelStateChanged() {
-        let (state, focusHeld) = (hover.state, hover.isFocusHeld)
-        frameTask?.cancel()
-        let plan = frame.plan(
-            for: state, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        let state = hover.state
         updateClickOutside(for: state)
-        guard case .applyAfter(let delay) = plan else {
-            applyFrame(state, focusHeld: focusHeld)
+        guard let toApply = frame.request(state) else {
+            scheduleShrinkDeadline(for: state)
             return
         }
-        frameTask = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
-            guard !Task.isCancelled else { return }
-            self?.applyFrame(state, focusHeld: focusHeld)
+        shrinkDeadline?.cancel()
+        controller?.apply(toApply, reason: hover.expandReason)
+    }
+
+    /// Safety net: apply the pending shrink even if the animation never reports completion.
+    private func scheduleShrinkDeadline(for state: NotchPanelState) {
+        shrinkDeadline?.cancel()
+        shrinkDeadline = Task { [weak self] in
+            do { try await Task.sleep(for: PanelShrinkPlan.fallbackDeadline) } catch { return }
+            guard let self, let toApply = self.frame.deadlineReached(state) else { return }
+            self.controller?.apply(toApply, reason: self.hover.expandReason)
         }
     }
 
-    /// Records the frame as applied only once it reaches the controller (TD-052).
-    private func applyFrame(_ state: NotchPanelState, focusHeld: Bool) {
-        frame.markApplied(state)
-        controller?.apply(state, focusHeld: focusHeld)
+    /// Called by `NotchRootView` when the animation toward `state` has finished.
+    private func animationSettled(_ state: NotchPanelState) {
+        guard let toApply = frame.animationFinished(state) else { return }
+        shrinkDeadline?.cancel()
+        controller?.apply(toApply, reason: hover.expandReason)
     }
 
     private static func storedOverride() -> DisplayOverride {

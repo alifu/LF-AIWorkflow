@@ -39,7 +39,7 @@ extension WorkflowEngine {
             await fail(id, .claudeError("the plan stage returned no text")); return
         }
         do {
-            let file = try writePlan(text, for: task)
+            let file = try await writePlan(text, for: task)
             apply(id, to: .awaitingApproval) { $0.with(planFile: file) }
         } catch {
             await fail(id, .claudeError("cannot write the plan file: \(error.localizedDescription)"))
@@ -47,8 +47,8 @@ extension WorkflowEngine {
     }
 
     /// Complexity: O(plan bytes) time, O(plan bytes) space
-    private func writePlan(_ text: String, for task: WorkflowTask) throws -> URL {
-        try SafeProjectFile.write(text, to: ".claude/plans", name: "\(SafeProjectFile.stem(slug: task.slug, id: task.id)).md",
+    private func writePlan(_ text: String, for task: WorkflowTask) async throws -> URL {
+        try await writer.writeProjectFile(text, to: ".claude/plans", name: "\(SafeProjectFile.stem(slug: task.slug, id: task.id)).md",
                                   root: task.workingDirectory)
     }
 
@@ -123,7 +123,8 @@ extension WorkflowEngine {
         guard let outcome = await runClaude(id, .review), let task = tasks[id] else { return }
         let report = ReviewReport.parse(outcome.text ?? "")
         do {
-            let file = try report.save(projectRoot: task.workingDirectory, slug: SafeProjectFile.stem(slug: task.slug, id: task.id))
+            let file = try await writer.saveReview(
+                report, projectRoot: task.workingDirectory, slug: SafeProjectFile.stem(slug: task.slug, id: task.id))
             apply(id, to: .done) { $0.with(reviewFile: file) }
         } catch {
             await fail(id, .claudeError("cannot save the review report: \(error.localizedDescription)"))
@@ -139,13 +140,17 @@ extension WorkflowEngine {
         let state = stage.taskState
         guard let task = tasks[id], let prompt = await buildPrompt(for: task, stage: stage), isCurrent(id, state),
               await withinBudget(id, estimate: prompt.estimatedTokens),
-              await withinDayBudget(id, estimate: prompt.estimatedTokens), let current = tasks[id] else { return nil }
+              let reserved = await reserveDayBudget(id, estimate: prompt.estimatedTokens) else { return nil }
+        guard let current = tasks[id] else {
+            await settleDay(reserved: reserved, usage: .zero)
+            return nil
+        }
         let request = StageRunRequest(
             stage: stage, config: Self.grantingReads(effectiveConfig(for: current, stage: stage), prompt.readFiles),
             prompt: prompt.text,
             sessionId: effectiveSettings(for: id).resumeSessionFor.contains(stage) ? current.sessionId : nil,
             addDirs: prompt.addDirs, workingDirectory: current.workingDirectory)
-        return await stream(request, id: id, state: state)
+        return await stream(request, id: id, state: state, reserved: reserved)
     }
 
     /// Adds one `Read(//abs/path)` rule per attachment file; characters that would break the rule list are skipped.
@@ -162,7 +167,7 @@ extension WorkflowEngine {
     }
 
     /// Complexity: O(events) time, O(1) space (events are not stored)
-    private func stream(_ request: StageRunRequest, id: UUID, state: TaskState) async -> StageRunOutcome? {
+    private func stream(_ request: StageRunRequest, id: UUID, state: TaskState, reserved: Int) async -> StageRunOutcome? {
         var lastUsage = TokenUsage.zero
         var finished: StageRunOutcome?
         do {
@@ -174,14 +179,14 @@ extension WorkflowEngine {
                 }
             }
         } catch {
-            await record(usage: lastUsage, stage: request.stage, id: id)
+            await record(usage: lastUsage, stage: request.stage, id: id, reserved: reserved)
             if isCurrent(id, state) {
                 await log("failed: \(error)", id, state)
                 await fail(id, error is ClaudeCommandError ? .invalidCommand("\(error)") : .claudeError("\(error)"))
             }
             return nil
         }
-        await record(usage: finished?.usage ?? lastUsage, stage: request.stage, id: id, session: finished?.sessionId)
+        await record(usage: finished?.usage ?? lastUsage, stage: request.stage, id: id, session: finished?.sessionId, reserved: reserved)
         guard isCurrent(id, state) else { return nil }
         guard let outcome = finished else {
             await log("the \(request.stage.displayName) stage ended without a result", id, state)
@@ -211,9 +216,9 @@ extension WorkflowEngine {
     }
 
     /// Complexity: O(1) time, O(1) space
-    private func record(usage: TokenUsage, stage: WorkflowStage, id: UUID, session: String? = nil) async {
+    private func record(usage: TokenUsage, stage: WorkflowStage, id: UUID, session: String? = nil, reserved: Int) async {
+        await settleDay(reserved: reserved, usage: usage)
         guard usage != .zero || session != nil else { return }
-        await recordDay(usage)
         update(id) { task in
             let added = task.adding(usage: usage, for: stage)
             return session.map { added.with(sessionId: $0) } ?? added

@@ -25,6 +25,7 @@ final class SpyPanel: PanelFraming {
     private(set) var frame: CGRect = .zero
     private(set) var setFrameCount = 0
     private(set) var keyable = false
+    private(set) var tookKeyCount = 0
     let frames: AsyncStream<CGRect>
     private let continuation: AsyncStream<CGRect>.Continuation
 
@@ -36,17 +37,30 @@ final class SpyPanel: PanelFraming {
         continuation.yield(frame)
     }
 
-    func setKeyable(_ isKeyable: Bool) { keyable = isKeyable }
+    func setKeyable(_ isKeyable: Bool, takeKey: Bool) { keyable = isKeyable; if takeKey { tookKeyCount += 1 } }
 }
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+final class FakeFrontmost: FrontmostAppTracking {
+    let ownProcessID: pid_t
+    var frontmost: pid_t?
+    private(set) var activated: [pid_t] = []
+    private(set) var queries = 0
+
+    init(own: pid_t = 10, frontmost: pid_t? = nil) { ownProcessID = own; self.frontmost = frontmost }
+
+    func frontmostProcessID() -> pid_t? { queries += 1; return frontmost }
+    func activate(_ processID: pid_t) { activated.append(processID) }
+}
+
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct NotchWindowControllerTests {
-    private func make(_ screens: [ScreenMetrics], override: DisplayOverride = .auto)
+    private func make(_ screens: [ScreenMetrics], override: DisplayOverride = .auto, focus: FakeFrontmost = FakeFrontmost())
         -> (NotchWindowController, FakeScreenProvider, SpyPanel) {
         let provider = FakeScreenProvider(screens)
         let panel = SpyPanel()
-        return (NotchWindowController(screens: provider, override: override, panel: panel), provider, panel)
+        return (NotchWindowController(screens: provider, override: override, panel: panel, focus: focus), provider, panel)
     }
 
     @Test func stateMapsToTheExpectedFrames() {
@@ -103,24 +117,87 @@ struct NotchWindowControllerTests {
         #expect(moved == NotchGeometry.collapsedFrame(for: FakeScreens.mbp16))
     }
 
-    @Test func onlyThePinnedStateIsKeyable() {
+    @Test func expandedAndPinnedAreKeyableCollapsedAndPeekAreNot() {
         let (controller, _, panel) = make([FakeScreens.mbp14])
+        controller.apply(.expanded)
+        #expect(panel.keyable)
         controller.apply(.pinned)
         #expect(panel.keyable)
-        controller.apply(.expanded)
-        #expect(!panel.keyable)
         controller.apply(.collapsed)
+        #expect(!panel.keyable)
+        controller.apply(.peek)
         #expect(!panel.keyable)
     }
 
-    @Test func focusHoldMakesTheExpandedPanelKeyButNeverTheCollapsedOne() {
+    @Test func hoverExpandCanBecomeKeyButNeverTakesKey() {
         let (controller, _, panel) = make([FakeScreens.mbp14])
-        controller.apply(.expanded, focusHeld: true)
+        controller.apply(.expanded, reason: .hover)
         #expect(panel.keyable)
-        controller.apply(.expanded, focusHeld: false)
-        #expect(!panel.keyable)
-        controller.apply(.collapsed, focusHeld: true)
-        #expect(!panel.keyable)
+        #expect(panel.tookKeyCount == 0)
+    }
+
+    @Test func hotkeyExpandTakesKeyAndAClickWhileHoverExpandedUpgradesIt() {
+        let (controller, _, panel) = make([FakeScreens.mbp14])
+        controller.apply(.expanded, reason: .explicit)
+        #expect(panel.tookKeyCount == 1)
+        controller.apply(.collapsed)
+        controller.apply(.expanded, reason: .hover)
+        #expect(panel.tookKeyCount == 1)
+        controller.apply(.expanded, reason: .explicit)
+        #expect(panel.tookKeyCount == 2)
+        controller.apply(.expanded, reason: .explicit)
+        #expect(panel.tookKeyCount == 2)
+    }
+
+    @Test func pinnedTakesKeyEvenAfterHoverExpand() {
+        let (controller, _, panel) = make([FakeScreens.mbp14])
+        controller.apply(.expanded, reason: .hover)
+        controller.apply(.pinned, reason: .hover)
+        #expect(panel.tookKeyCount == 1)
+    }
+
+    @Test func collapseReactivatesThePreviousAppWhenThisAppIsFrontmost() {
+        let focus = FakeFrontmost(own: 10, frontmost: 77)
+        let (controller, _, _) = make([FakeScreens.mbp14], focus: focus)
+        controller.apply(.expanded)
+        focus.frontmost = 10
+        controller.apply(.collapsed)
+        #expect(focus.activated == [77])
+    }
+
+    @Test func collapseLeavesFocusAloneWhenAnotherAppIsFrontmost() {
+        let focus = FakeFrontmost(own: 10, frontmost: 77)
+        let (controller, _, _) = make([FakeScreens.mbp14], focus: focus)
+        controller.apply(.expanded)
+        focus.frontmost = 88
+        controller.apply(.collapsed)
+        #expect(focus.activated.isEmpty)
+    }
+
+    @Test func hoverPeekAndCollapsedNeverTouchFocus() {
+        let focus = FakeFrontmost(own: 10, frontmost: 77)
+        let (controller, _, _) = make([FakeScreens.mbp14], focus: focus)
+        controller.apply(.peek)
+        controller.apply(.collapsed)
+        #expect(focus.activated.isEmpty)
+        #expect(focus.queries == 0)
+    }
+
+    @Test func expandedToPinnedKeepsTheFirstRememberedApp() {
+        let focus = FakeFrontmost(own: 10, frontmost: 77)
+        let (controller, _, _) = make([FakeScreens.mbp14], focus: focus)
+        controller.apply(.expanded)
+        focus.frontmost = 10
+        controller.apply(.pinned)
+        controller.apply(.collapsed)
+        #expect(focus.activated == [77])
+    }
+
+    @Test func noMenuBarScreenWithoutNotchPutsTheHalfCircleAtTopCenter() {
+        let frame = NotchGeometry.collapsedFrame(for: FakeScreens.external)
+        #expect(frame.midX == FakeScreens.external.frame.midX)
+        #expect(frame.maxY == FakeScreens.external.frame.maxY)
+        #expect(frame.width == NotchGeometry.halfCircleWidth)
     }
 
     @Test func reportsTheNotchKindOnFirstPlacementAndWhenItChanges() {

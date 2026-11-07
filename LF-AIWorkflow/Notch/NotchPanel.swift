@@ -48,10 +48,10 @@ final class NotchPanel: NSPanel, PanelFraming {
     private(set) var resignKeyCount = 0
     override func resignKey() { resignKeyCount += 1; super.resignKey() }
 
-    func setKeyable(_ isKeyable: Bool) {
+    func setKeyable(_ isKeyable: Bool, takeKey: Bool) {
         allowsKey = isKeyable
         if isKeyable {
-            makeKeyAndOrderFront(nil)
+            if takeKey { makeKeyAndOrderFront(nil) }
         } else if wasKeyable || isKeyWindow {
             resignKey()
         }

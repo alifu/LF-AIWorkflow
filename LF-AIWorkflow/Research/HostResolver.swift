@@ -23,6 +23,21 @@ nonisolated enum HostResolveError: Error, Sendable, Equatable {
 }
 
 /// `getaddrinfo` on a background queue with a hard time cap.
+///
+/// Known residual (TD-090, accepted, documented): DNS rebinding. The addresses checked here are
+/// not pinned to the connection. A hostile DNS server can return a public address for the check
+/// and a private one when WebKit or the crawler connects. The window is the gap between this
+/// lookup and the connect. Pinning is not done because WKWebView does not expose the connected
+/// IP, so a pinned lookup would not cover page loads and would add a second code path to keep in
+/// sync. Mitigations in place:
+/// - `HostPolicy.check(_:)` rejects non-http(s) schemes, userinfo, non-80/443 ports, local suffixes
+///   and literal private or loopback hosts before any lookup.
+/// - `HostPolicy.check(addresses:)` rejects any resolved private, loopback, or link-local address.
+/// - `Crawler.fetch` resolves and checks each host before fetching it.
+/// - `WebPageRenderer` `NavigationGate` re-resolves and re-checks every main-frame hop, including
+///   redirects (`hopAllowed`, TD-076), and blocks downloads and disallowed subframes.
+/// - Lookups are capped at `timeout` (3 s), and a failed or timed-out lookup blocks the fetch.
+/// Complexity: O(1) time, O(1) space (documentation only).
 nonisolated struct SystemHostResolver: HostResolving {
     static let timeout: Duration = .seconds(3)
 

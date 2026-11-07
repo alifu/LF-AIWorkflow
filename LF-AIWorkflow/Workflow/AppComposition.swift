@@ -60,10 +60,11 @@ enum AppComposition {
         return ToolLocator.searchPath(loginShellPATH: loginPath, processPATH: env["PATH"], home: NSHomeDirectory())
     }
 
-    /// A provider that rebuilds the locator from the live Settings paths on every call.
-    /// Complexity: O(1) time to build, O(d) space (search path)
-    static func liveLocators(searchPath: [String]) -> ToolLocatorProvider {
-        ToolLocatorProvider { await MainActor.run { ToolLocator(searchPath: searchPath, overrides: settings.toolPaths) } }
+    /// A provider that rebuilds the locator from the live Settings paths on every call. Reads the lock-backed mirror,
+    /// so the call never hops to the MainActor.
+    /// Complexity: O(1) time to build, O(k + d) time per call (k overrides copied, d search path), O(d) space
+    static func liveLocators(searchPath: [String], paths: ToolPathStore) -> ToolLocatorProvider {
+        ToolLocatorProvider { ToolLocator(searchPath: searchPath, overrides: paths.current) }
     }
 
     /// Wires the engine from one snapshot of the settings. The Claude, git and graphify clients ask the live locator
@@ -74,7 +75,7 @@ enum AppComposition {
         let searchPath = await resolveSearchPath()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = searchPath.joined(separator: ":")
-        let locators = liveLocators(searchPath: searchPath)
+        let locators = liveLocators(searchPath: searchPath, paths: settings.toolPathStore)
         let engineSettings = EngineSettings.from(snapshot)
         let runner = LiveClaudeRunner(locators: locators, baseEnvironment: environment, searchPath: searchPath)
         let (claude, researchRunner): (any ClaudeStageRunning, any ResearchClaudeRunning) = (runner, runner)

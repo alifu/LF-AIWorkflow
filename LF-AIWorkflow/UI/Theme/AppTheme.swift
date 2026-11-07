@@ -3,6 +3,7 @@
 //  LF-AIWorkflow
 //
 
+import AppKit
 import SwiftUI
 
 /// Immutable visual tokens. Views read tokens only and never branch on `id`, so a new style touches no view.
@@ -61,6 +62,18 @@ nonisolated struct AppTheme: Sendable, Equatable {
     let collapsedWingColor: ThemeColor
     /// Text on the wings; fixed like the wings themselves.
     let collapsedWingText: ThemeColor
+    /// True when the accent token resolves to the macOS accent color (TD-059) instead of the palette's fixed accent.
+    var followsSystemAccent = false
+
+    /// Accent for tints and borders: the system accent when the theme follows it, else the palette token.
+    /// Complexity: O(1) time, O(1) space
+    func accentNSColor(for scheme: ColorScheme) -> NSColor {
+        followsSystemAccent ? NSColor.controlAccentColor : palette(for: scheme).accent.nsColor
+    }
+
+    /// SwiftUI form of `accentNSColor(for:)`.
+    /// Complexity: O(1) time, O(1) space
+    func accentColor(for scheme: ColorScheme) -> Color { Color(nsColor: accentNSColor(for: scheme)) }
 
     /// Complexity: O(1) time, O(1) space
     func palette(for scheme: ColorScheme) -> ThemePalette {

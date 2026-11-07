@@ -108,6 +108,7 @@ struct StageChipStrip: View {
     }
 }
 
+#if DEBUG
 #Preview("Pop Art active") {
     StageChipStrip(chips: TaskRowModel(PreviewFixtures.task(state: .fix, fixAttempts: 1), now: PreviewFixtures.epoch).chips)
         .padding()
@@ -121,3 +122,4 @@ struct StageChipStrip: View {
         .background(.black)
         .environment(\.appTheme, .classic)
 }
+#endif

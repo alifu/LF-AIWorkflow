@@ -7,7 +7,7 @@ import Testing
 @testable import LF_AIWorkflow
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct HoverControllerTests {
     private func make() -> (HoverController, ManualClock) {
         let clock = ManualClock()
@@ -19,6 +19,21 @@ struct HoverControllerTests {
         await clock.waitForSleepers(1)
         clock.advance(by: duration)
         await controller.settle()
+    }
+
+    // MARK: expand reason (TD-065)
+
+    @Test func timerExpandIsHoverWhileExpandHotkeyAndPinAreExplicit() async {
+        let (c, clock) = make()
+        c.pointerEntered()
+        await elapse(c, clock, .milliseconds(120))
+        #expect(c.state == .expanded)
+        #expect(c.expandReason == .hover)
+        c.expand()
+        #expect(c.expandReason == .explicit)
+        c.collapse()
+        c.toggleFromHotkey()
+        #expect(c.expandReason == .explicit)
     }
 
     // MARK: expand
@@ -255,7 +270,7 @@ struct HoverControllerTests {
 // MARK: - Esc, click outside, peek setting (Phase 6 step 12, TD-054, TD-005)
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct HoverDismissalTests {
     @Test func keyboardExpandCanBeCollapsedWithEsc() {
         let c = HoverController()

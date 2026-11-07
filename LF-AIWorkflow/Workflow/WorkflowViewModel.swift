@@ -62,9 +62,10 @@ final class WorkflowViewModel {
 
     func start() {
         guard updatesTask == nil else { return }
-        let updates = engine.updates
+        let engine = engine
         let changes = logs.changes
         updatesTask = Task { [weak self] in
+            let updates = await engine.makeUpdates()  // fresh stream per start (TD-115)
             for await task in updates {
                 guard let self else { return }
                 self.receive(task)
@@ -77,6 +78,15 @@ final class WorkflowViewModel {
                 try? await Task.sleep(for: Self.logReloadInterval)  // throttle: at most ~10 reloads/s (TD-050)
             }
         }
+    }
+
+    /// Flushes the engine's pending task save, waiting at most `timeout` (app terminate cannot await).
+    /// Complexity: O(n log n) time, O(n) space (n = tasks)
+    func flushPersistence(timeout: TimeInterval = 2) {
+        let done = DispatchSemaphore(value: 0)
+        let engine = engine
+        Task.detached { await engine.stop(); done.signal() }
+        _ = done.wait(timeout: .now() + timeout)
     }
 
     func stop() {
@@ -218,6 +228,7 @@ final class WorkflowViewModel {
         case .taskActive: "Finish or cancel the task before removing its worktree."
         case .noWorktree: "This task has no worktree."
         case .worktreeRemovalFailed(let reason): "Cannot remove the worktree: \(reason)"
+        case .worktreeMissing(let path): "The worktree no longer exists: \(path)"
         }
     }
 }

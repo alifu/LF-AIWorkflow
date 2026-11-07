@@ -123,3 +123,17 @@ Run the tests:
 ```bash
 xcodebuild -project LF-AIWorkflow.xcodeproj -scheme LF-AIWorkflow -destination 'platform=macOS' test
 ```
+
+Run the full validation gate (Debug unit tests, then the Release-config 10 MB token perf test). It exits non-zero if either step fails or if the perf test is skipped:
+
+```bash
+./scripts/validate.sh
+```
+
+The Debug run skips the perf test on purpose: its wall-clock limit only holds in an optimised build. UI tests are excluded because the UI test runner cannot enable automation from a non-interactive shell. Both runs use private DerivedData folders under `~/Library/Developer/LF-gate-validate/`.
+
+### Token budgets and pauses
+
+Each task has a token budget (Settings > Budgets). Before each Claude stage (Plan, Code, Fix, Review), the app checks whether the spend so far plus the next prompt would pass the limit. If so, the task pauses with "Token budget reached" and asks you once; raising the budget and resuming continues from that stage.
+
+The Test stage spends no tokens, so it never pauses. An over-budget task therefore runs its tests first, then pauses before the next Claude stage: **Fix** if the tests fail, **Review** if they pass.

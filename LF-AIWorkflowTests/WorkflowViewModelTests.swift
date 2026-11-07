@@ -115,6 +115,19 @@ struct WorkflowViewModelTests {
         model.stop()
     }
 
+    @Test func startAfterStopReceivesUpdatesAgain() async throws {
+        let h = try Harness(recording: false)
+        let (model, _) = try makeModel(harness: h)
+        model.start()
+        await model.submit(h.draft(title: "First start"))
+        #expect(await eventually { model.rows.count == 1 })
+        model.stop()
+        model.start()
+        await model.submit(h.draft(title: "Second start"))
+        #expect(await eventually { model.rows.count == 2 })
+        model.stop()
+    }
+
     @Test func failedActionsSurfaceAnError() async throws {
         let (model, _) = try makeModel()
         #expect(await model.approve(UUID()) == false)

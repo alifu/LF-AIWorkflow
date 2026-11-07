@@ -45,12 +45,13 @@ struct ResearchPipelineTests {
     }
 
     private func wait(_ pipeline: ResearchPipeline, _ id: UUID, for state: ResearchState) async throws -> ResearchTask {
-        for _ in 0..<1000 {
-            if let t = await pipeline.task(id), t.state == state { return t }
-            try await Task.sleep(for: .milliseconds(5))
+        do {
+            try await waitUntil("research task reaches \(state)") { await pipeline.task(id)?.state == state }
+        } catch {
+            Issue.record("\(error)")
+            throw error
         }
-        Issue.record("timed out waiting for \(state)")
-        throw CancellationError()
+        return try #require(await pipeline.task(id))
     }
 
     private func answer() throws -> FakeResearchRunner.Reply { FakeResearchRunner.ok(try fixture("answer-good.md")) }

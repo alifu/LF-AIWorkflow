@@ -7,7 +7,7 @@ import Testing
 import Foundation
 @testable import LF_AIWorkflow
 
-@Suite(.timeLimit(.minutes(2)))
+@Suite(.serialized, .timeLimit(.minutes(2)))
 struct GraphifyClientTests {
     /// Fake graphify: logs each call's argv (one arg per line, calls separated by `--`), `update` creates the graph.
     private struct Fake {

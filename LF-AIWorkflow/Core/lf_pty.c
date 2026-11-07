@@ -339,6 +339,10 @@ int lf_pty_wait(lf_pty *p, int *exit_status) {
 int lf_pty_terminate(lf_pty *p, int grace_ms) {
     if (p == NULL) { errno = EINVAL; return -1; }
     if (!p->reaped) {
+        /* SIGTERM the group, wait up to grace_ms for the leader, then SIGKILL the whole group even if the leader
+         * already exited. Stragglers (descendants that ignore SIGTERM or outlive the leader) would otherwise survive.
+         * There is no grace step after SIGKILL and none is needed: the group is swept once, then reaped below.
+         * Cited by TD-128 (tech-debt pass 2). */
         kill(-p->pid, SIGTERM);
         (void)wait_exit(p, grace_ms < 0 ? 0 : grace_ms);
         kill(-p->pid, SIGKILL);   /* always sweep the group: stragglers, or a leader that is already dead */

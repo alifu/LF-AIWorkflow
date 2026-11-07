@@ -26,6 +26,7 @@ Repeat for {Classic, Pop Art} x {Light, Dark} x {notched, no notch}.
 | Peek on/off | Off: no bubble on task events; on: bubble appears |
 | Tools tab | Path override accepted for an executable; Test button shows the version; a non-executable file is rejected with a message; Re-detect works |
 | Stages / Budgets | Out-of-range turns or tokens are clamped with a note; bad model name rejected |
+| Per-task budget (TD-126) | Set a small task budget and run a task past it: the Test stage still runs (no tokens); the task then pauses before the next Claude stage, Fix if the tests fail or Review if they pass, with "Token budget reached". Raising the budget and resuming continues from that stage |
 | Per-day cap | The "Per day" field is shown disabled, caption "Daily cap isn't enforced yet" (TD-066) |
 | New tasks only | Change a model or budget while a task runs: the running task keeps its old values; the next new task uses the new ones |
 

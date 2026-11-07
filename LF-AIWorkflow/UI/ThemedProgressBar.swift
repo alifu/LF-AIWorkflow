@@ -15,7 +15,7 @@ struct ThemedProgressBar: View {
         let palette = theme.palette(for: scheme)
         switch theme.progressBarStyle {
         case .linear:
-            ProgressView(value: value).progressViewStyle(.linear).tint(palette.accent.color)
+            ProgressView(value: value).progressViewStyle(.linear).tint(theme.accentColor(for: scheme))
         case .blocky:
             StripedProgressBar(fraction: value, fill: palette.accent, stripe: palette.onStageFill,
                                outline: palette.outline, outlineWidth: theme.outlineWidth)

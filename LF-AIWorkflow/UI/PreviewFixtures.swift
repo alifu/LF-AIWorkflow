@@ -3,10 +3,10 @@
 //  LF-AIWorkflow
 //
 
-#if DEBUG
 import Foundation
 
-/// Fixture tasks for `#Preview`s and unit tests (debug builds only).
+/// Fixture tasks for `#Preview`s and unit tests. Not behind `#if DEBUG`: the Release-config test target
+/// (TD-125 perf gate) imports the app module and needs these symbols. Unused statics are dead-stripped.
 nonisolated enum PreviewFixtures {
     static let project = URL(fileURLWithPath: "/tmp/MyApp", isDirectory: true)
     static let epoch = Date(timeIntervalSince1970: 1_000)
@@ -35,9 +35,7 @@ nonisolated enum PreviewFixtures {
         ]
     }
 }
-#endif
 
-#if DEBUG
 extension PreviewFixtures {
     struct SamplePlanLoader: PlanLoading {
         func load(_ url: URL) async throws -> PlanDocument {
@@ -58,4 +56,3 @@ extension PreviewFixtures {
     static var planLoader: any PlanLoading { SamplePlanLoader() }
     static var reviewLoader: any ReviewLoading { SampleReviewLoader() }
 }
-#endif

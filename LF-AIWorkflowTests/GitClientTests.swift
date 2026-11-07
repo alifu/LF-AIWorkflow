@@ -34,6 +34,54 @@ struct GitClientTests {
         #expect(diff.contains("-let a = 99"))
     }
 
+    /// TD-117: untracked files present at snapshot time belong to the base and stay out of the review diff.
+    @Test func snapshotCommitCoversPreexistingUntrackedFiles() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try TestEnv.write(repo, "old-untracked.swift", "let old = 1\n")
+        let snapshot = try await client().snapshotCommit(in: repo)
+        try TestEnv.write(repo, "new-untracked.swift", "let fresh = 2\n")
+        let diff = try await client().reviewDiff(in: repo, base: snapshot, markNewFiles: false)
+        #expect(!diff.contains("old-untracked"))
+        #expect(diff.contains("+let fresh = 2"))
+    }
+
+    /// Secrets and noise paths never become git objects in the snapshot; normal untracked files still do.
+    @Test func snapshotCommitOmitsSecretsFromTree() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try TestEnv.write(repo, ".env", "API_KEY=super-secret-value\n")
+        try TestEnv.write(repo, "deploy.pem", "pem-secret\n")
+        try TestEnv.write(repo, "keep.swift", "let keep = 1\n")
+        let git = client()
+        let snapshot = try await git.snapshotCommit(in: repo)
+        #expect(snapshot.count == 40)
+        let tree = try await git.run(["ls-tree", "-r", snapshot], in: repo)
+        #expect(tree.contains("keep.swift"))
+        #expect(!tree.contains(".env"))
+        #expect(!tree.contains("deploy.pem"))
+        let hash = try await git.run(["hash-object", "--", ".env"], in: repo).trimmingCharacters(in: .whitespacesAndNewlines)
+        await #expect(throws: GitError.self) { _ = try await git.run(["cat-file", "-e", hash], in: repo) }
+        try TestEnv.write(repo, "new.swift", "let fresh = 2\n")
+        let diff = try await git.reviewDiff(in: repo, base: snapshot, markNewFiles: false)
+        #expect(!diff.contains("keep.swift"))
+        #expect(diff.contains("+let fresh = 2"))
+        #expect(!diff.contains("super-secret-value"))
+    }
+
+    @Test func snapshotCommitLeavesRealIndexUntouched() async throws {
+        let repo = try await TestEnv.makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try TestEnv.write(repo, "u.swift", "let u = 1\n")
+        try TestEnv.write(repo, "a.swift", "let a = 5\n")
+        let before = try Data(contentsOf: repo.appendingPathComponent(".git/index"))
+        _ = try await client().snapshotCommit(in: repo)
+        let after = try Data(contentsOf: repo.appendingPathComponent(".git/index"))
+        #expect(before == after)
+        let listing = try await client().run(["ls-files", "--others", "--exclude-standard"], in: repo)
+        #expect(listing.contains("u.swift"))
+    }
+
     @Test func snapshotCommitOfCleanTreeIsHead() async throws {
         let repo = try await TestEnv.makeRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

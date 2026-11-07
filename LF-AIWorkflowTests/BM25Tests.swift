@@ -60,6 +60,55 @@ struct BM25Tests {
         #expect(r.map(\.index) == [0])
     }
 
+    @Test func foldsGreekCyrillicArmenianGeorgianAndExtended() throws {
+        let pairs = [("ΑΒΓ", "αβγ"), ("ПРИВЕТ", "привет"), ("ԱԲԳ", "աբգ"),
+                     ("ႠႡႢ", "ⴀⴁⴂ"), ("ḀḂḄ", "ḁḃḅ"), ("ѠѢѤ", "ѡѣѥ"), ("ἈἉἊ", "ἀἁἂ")]
+        let unassigned = try BM25.topK(chunks: ["a\u{3A2}b tail", "other"], query: "a\u{3C2}b", k: 2)
+        #expect(!unassigned.map(\.index).contains(0), "U+03A2 is unassigned and must not fold")
+        for (upper, lower) in pairs {
+            let r = try BM25.topK(chunks: [lower + " tail", "other words"], query: upper, k: 2)
+            #expect(r.map(\.index) == [0], "\(upper) should match \(lower)")
+            let r2 = try BM25.topK(chunks: [upper + " tail", "other words"], query: lower, k: 2)
+            #expect(r2.map(\.index) == [0], "\(lower) should match \(upper)")
+        }
+    }
+
+    @Test func foldsDeseretFourByteUppercase() throws {
+        let r = try BM25.topK(chunks: ["𐐀𐐁𐐂 x", "none"], query: "𐐨𐐩𐐪", k: 2)
+        #expect(r.map(\.index) == [0])
+    }
+
+    @Test func fullwidthLatinMatchesAscii() throws {
+        let r = try BM25.topK(chunks: ["abc def", "zzz"], query: "ＡＢＣ", k: 2)
+        #expect(r.map(\.index) == [0])
+        let r2 = try BM25.topK(chunks: ["ＡＢＣ def", "zzz"], query: "abc", k: 2)
+        #expect(r2.map(\.index) == [0])
+    }
+
+    @Test func invalidAndTruncatedUtf8DoNotCrash() throws {
+        // Build chunks from raw bytes that end mid-sequence; String(decoding:) would repair them,
+        // so drive the C API directly.
+        let samples: [[UInt8]] = [
+            [0x61, 0x62, 0x63, 0xE3], [0x61, 0x62, 0x63, 0xEF, 0xBC], [0x61, 0x62, 0x63, 0xF0, 0x90, 0x90],
+            [0xFF, 0xFE, 0x61, 0x62, 0x63], [0xEF, 0xBC, 0x41, 0xEF, 0xBC],
+        ]
+        for bytes in samples {
+            var heap = bytes
+            let n = heap.count
+            heap.withUnsafeMutableBufferPointer { bp in
+                let p = UnsafeRawPointer(bp.baseAddress!).assumingMemoryBound(to: CChar.self)
+                var spans = [lf_text_span(ptr: p, len: n)]
+                let ix = lf_bm25_create(&spans, 1, 1.2, 0.75)
+                var ids = [UInt32](repeating: 0, count: 1)
+                var sc = [Double](repeating: 0, count: 1)
+                if let ix {
+                    _ = lf_bm25_query(ix, p, n, 1, &ids, &sc)
+                    lf_bm25_free(ix)
+                }
+            }
+        }
+    }
+
     @Test func largeCorpusFindsNeedle() throws {
         var chunks = (0..<2000).map { "filler text number \($0) lorem ipsum" }
         chunks[1234] += " needleword"

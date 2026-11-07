@@ -48,6 +48,8 @@ nonisolated struct EngineDependencies: Sendable {
     var ledger: DayTokenLedger? = nil
     /// Task persistence (`ProjectStore`); nil keeps tasks in memory only.
     var store: (any TaskPersisting)? = nil
+    /// Quiet period before task saves are written (TD-123); `stop()` flushes at once.
+    var persistDebounce: Duration = TaskStoreWriter.defaultDebounce
 }
 
 nonisolated extension EngineSettings {

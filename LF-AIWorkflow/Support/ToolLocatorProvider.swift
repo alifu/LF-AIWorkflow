@@ -4,6 +4,21 @@
 //
 
 import Foundation
+import os
+
+/// Lock-backed copy of the Settings tool paths, readable from any context without a MainActor hop.
+/// Complexity: O(1) time per write, O(k) time per read (k = overrides, copied out), O(k) space
+nonisolated final class ToolPathStore: Sendable {
+    private let paths: OSAllocatedUnfairLock<[Tool: String]>
+
+    init(_ initial: [Tool: String] = [:]) { paths = OSAllocatedUnfairLock(initialState: initial) }
+
+    /// Complexity: O(k) time (replaces the map), O(k) space
+    func set(_ newPaths: [Tool: String]) { paths.withLock { $0 = newPaths } }
+
+    /// Complexity: O(k) time (copies the map), O(k) space
+    var current: [Tool: String] { paths.withLock { $0 } }
+}
 
 /// Hands out the current `ToolLocator` on every call, so a changed CLI path applies to the next task without a relaunch.
 nonisolated struct ToolLocatorProvider: Sendable {

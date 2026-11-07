@@ -52,4 +52,14 @@ struct CliVersionCheckTests {
         #expect(value == 42)
         #expect(progress.phase == .ready)
     }
+
+    @Test func hungWorkReachesFailedAfterTheTimeout() async {
+        let progress = StartupProgress()
+        let value: Int? = await progress.run(timeout: .milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(30))
+            return 1
+        }
+        #expect(value == nil)
+        #expect(progress.phase == .failed)
+    }
 }

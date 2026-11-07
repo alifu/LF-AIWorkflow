@@ -68,7 +68,15 @@ nonisolated enum FolderScanner {
                 return n
             }
         }
-        assert(count == box.files.count, "lf_scan_walk count disagrees with collected files")
-        return box.files
+        return try checkedFiles(reported: count, collected: box.files)
+    }
+
+    /// Returns `collected` only when the walk's reported count matches it. Runs in every build configuration (TD-127).
+    /// Complexity: O(1) time, O(1) space
+    static func checkedFiles(reported: Int, collected: [ScannedFile]) throws(LFCoreError) -> [ScannedFile] {
+        guard reported == collected.count else {
+            throw .scanCountMismatch(reported: reported, collected: collected.count)
+        }
+        return collected
     }
 }

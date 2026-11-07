@@ -9,10 +9,16 @@ extension WorkflowEngine {
     /// `done -> fix`: feeds saved review findings into one more Fix stage, then the usual test and review loop
     /// runs again (TD-045). The caller picks the findings (the review screen sends HIGH and above).
     /// Complexity: O(f) time, O(f) space (f = findings)
-    func sendToFix(_ id: UUID, findings: [Finding]) throws(WorkflowError) {
-        let task = try lookup(id)
+    func sendToFix(_ id: UUID, findings: [Finding]) async throws(WorkflowError) {
+        var task = try lookup(id)
         guard task.state == .done else { throw .illegalTransition(from: task.state, to: .fix) }
         guard !findings.isEmpty else { throw .noFindings }
+        if let worktree = task.worktree, !(await writer.fileExists(at: worktree.path)) {
+            throw .worktreeMissing(worktree.path.path)
+        }
+        // The check suspended: another call may have moved the task meanwhile.
+        task = try lookup(id)
+        guard task.state == .done else { throw .illegalTransition(from: task.state, to: .fix) }
         taskSettings[id] = settings
         findingsForFix[id] = findings
         publish(try TaskTransitions.move(task.with(lastErrors: nil), to: .fix, fixLoopCap: settings.fixLoopCap))

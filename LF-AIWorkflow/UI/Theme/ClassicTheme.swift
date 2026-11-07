@@ -116,5 +116,6 @@ extension AppTheme {
             alert: ThemeColor(1.0, 0.839, 0.039)),
         progressBarStyle: .linear,
         collapsedWingColor: .white(0),
-        collapsedWingText: .white(1))
+        collapsedWingText: .white(1),
+        followsSystemAccent: true)
 }
