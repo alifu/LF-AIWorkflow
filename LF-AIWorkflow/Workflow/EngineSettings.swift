@@ -18,7 +18,7 @@ nonisolated struct EngineSettings: Sendable, Equatable {
     var dayBudget: Int = 0
 
     static let `default` = EngineSettings(
-        fixLoopCap: 2, useWorktree: true, testCommandOverride: nil, budget: .default,
+        fixLoopCap: 2, useWorktree: false, testCommandOverride: nil, budget: .default,
         policy: .defaults(testCommand: nil), resumeSessionFor: [.code])
 }
 

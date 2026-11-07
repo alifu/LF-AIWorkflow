@@ -51,6 +51,16 @@ struct EngineEntriesTests {
         #expect(await h.engine.task(id)?.worktree == nil)
     }
 
+    @Test func defaultSettingsDoNotCreateAWorktree() async throws {
+        #expect(EngineSettings.default.useWorktree == false)
+        let h = try Harness(settings: EngineSettings.default)
+        let id = await h.engine.submit(h.draft())
+        #expect(await h.recorder.wait(.awaitingApproval))
+        #expect(h.worktrees.created.isEmpty)
+        #expect(await h.engine.task(id)?.worktree == nil)
+        #expect(await h.engine.task(id)?.baseCommit != nil)
+    }
+
     @Test func noPerTaskChoiceFollowsTheGlobalSetting() async throws {
         let h = try Harness(settings: Harness.settings(useWorktree: true))
         _ = await h.engine.submit(h.draft())

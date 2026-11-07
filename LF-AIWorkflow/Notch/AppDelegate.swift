@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let layout = NotchLayoutModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PanelCollapse.handler = { [hover] in hover.collapse() }
         installStartingPanel()
         Task { [weak self, startup] in
             let services = await startup.run { await AppComposition.makeServices() }

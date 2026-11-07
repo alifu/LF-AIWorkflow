@@ -19,7 +19,8 @@ final class ComposerViewModel {
     /// Skip Plan and approval (TD-044). Cleared after each start.
     var startAtCode = false
     /// Per-task worktree choice (TD-044).
-    var useWorktree = true
+    /// Off by default: a worktree is a full second checkout of the project (disk cost).
+    var useWorktree = false
     private(set) var projectRoot: URL?
     private(set) var documents: [Attachment] = []
     private(set) var skillDirs: [URL] = []

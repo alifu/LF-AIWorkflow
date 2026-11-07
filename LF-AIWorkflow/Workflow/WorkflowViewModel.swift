@@ -199,7 +199,7 @@ final class WorkflowViewModel {
     /// Reveals the task's worktree (or project) folder in Finder.
     func openWorktree(_ id: UUID) {
         guard let task = board.task(id) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([task.workingDirectory])
+        EditorOpener().reveal(task.workingDirectory)
     }
 
     func log(for id: UUID) async -> [TaskLogLine] {

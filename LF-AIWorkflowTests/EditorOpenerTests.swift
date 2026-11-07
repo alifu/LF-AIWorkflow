@@ -112,6 +112,50 @@ final class SpyURLOpener: URLOpening {
         #expect(!EditorOpener(backend: spy).open(path: "a.swift", line: nil, within: root))
     }
 
+    // MARK: panel collapse (the notch panel must not cover the Finder or editor window)
+
+    @Test func collapsesThePanelWhenOpeningAFile() throws {
+        let root = try TestEnv.makeTempDir()
+        try TestEnv.write(root, "a.swift", "x")
+        var collapses = 0
+        let opener = EditorOpener(backend: SpyURLOpener(), collapsePanel: { collapses += 1 })
+        #expect(opener.open(path: "a.swift", line: nil, within: root))
+        #expect(collapses >= 1)
+    }
+
+    @Test func collapsesThePanelWhenRevealing() {
+        var collapses = 0
+        let spy = SpyURLOpener()
+        EditorOpener(backend: spy, collapsePanel: { collapses += 1 }).reveal(URL(fileURLWithPath: "/tmp/x"))
+        #expect(collapses == 1 && spy.revealed.count == 1)
+    }
+
+    @Test func collapsesThePanelOnTheRiskyTypeFallbackToReveal() throws {
+        let root = try TestEnv.makeTempDir()
+        try TestEnv.write(root, "run.command", "x")
+        var collapses = 0
+        let spy = SpyURLOpener()
+        #expect(EditorOpener(backend: spy, collapsePanel: { collapses += 1 }).open(path: "run.command", line: nil, within: root))
+        #expect(collapses == 1 && spy.revealed.count == 1 && spy.opened.isEmpty)
+    }
+
+    @Test func doesNotCollapseWhenTheOpenIsRefused() throws {
+        let root = try TestEnv.makeTempDir()
+        var collapses = 0
+        let opener = EditorOpener(backend: SpyURLOpener(), collapsePanel: { collapses += 1 })
+        #expect(!opener.open(path: "../../.ssh/config", line: nil, within: root))
+        #expect(collapses == 0)
+    }
+
+    @Test func defaultCollapseGoesThroughThePanelHook() {
+        let saved = PanelCollapse.handler
+        defer { PanelCollapse.handler = saved }
+        var requested = 0
+        PanelCollapse.handler = { requested += 1 }
+        EditorOpener(backend: SpyURLOpener()).reveal(URL(fileURLWithPath: "/tmp/x"))
+        #expect(requested == 1)
+    }
+
     // MARK: dangerous targets
 
     private func openAndRevealed(_ name: String, in root: URL) -> (ok: Bool, opened: [URL], revealed: [URL]) {

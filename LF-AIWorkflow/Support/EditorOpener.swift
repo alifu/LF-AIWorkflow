@@ -61,6 +61,14 @@ protocol EditorOpening {
     func reveal(_ url: URL)
 }
 
+/// Hook that collapses the notch panel so a window opened by Finder or an editor is not hidden behind it (the panel floats at
+/// status-bar level). `AppDelegate` installs the real handler; tests inject their own closure instead.
+@MainActor
+enum PanelCollapse {
+    static var handler: @MainActor () -> Void = {}
+    static func request() { handler() }
+}
+
 /// Containment check, file-type check, then NSWorkspace. Never goes through a shell.
 @MainActor
 struct EditorOpener: EditorOpening {
@@ -70,11 +78,15 @@ struct EditorOpener: EditorOpening {
     let jumper: any LineJumping
     /// Test seam: runs between the first check and the final re-verification.
     let beforeOpen: @MainActor (URL) -> Void
+    /// Asked right before any Finder reveal or editor open, so the new window is not covered by the notch panel.
+    let collapsePanel: @MainActor () -> Void
 
     init(backend: any URLOpening = WorkspaceURLOpener(),
          choice: @escaping @MainActor () -> EditorChoice = { EditorChoice.stored() },
          jumper: any LineJumping = CommandLineJumper(),
-         beforeOpen: @escaping @MainActor (URL) -> Void = { _ in }) {
+         beforeOpen: @escaping @MainActor (URL) -> Void = { _ in },
+         collapsePanel: @escaping @MainActor () -> Void = { PanelCollapse.request() }) {
+        self.collapsePanel = collapsePanel
         self.backend = backend
         self.choice = choice
         self.jumper = jumper
@@ -85,6 +97,7 @@ struct EditorOpener: EditorOpening {
     func open(path: String, line: Int?, within root: URL) -> Bool {
         guard let url = PathContainment.resolve(path, within: root) else { return false }
         guard OpenSafety.isSafeToOpen(url) else {
+            collapsePanel()
             backend.reveal(url)
             return true
         }
@@ -92,16 +105,21 @@ struct EditorOpener: EditorOpening {
         // Re-verify right before the call: the path must still resolve to the same place inside the root and still be safe.
         guard let again = PathContainment.resolve(url.path, within: root), again == url else { return false }
         guard OpenSafety.isSafeToOpen(again) else {
+            collapsePanel()
             backend.reveal(again)
             return true
         }
+        collapsePanel()
         let editor = choice()
         if let line, let jump = editor.lineJump(path: again.path, line: line),
            jumper.jump(executable: jump.executable, arguments: jump.arguments) { return true }
         return backend.open(again, bundleIdentifier: editor.bundleIdentifier)
     }
 
-    func reveal(_ url: URL) { backend.reveal(url) }
+    func reveal(_ url: URL) {
+        collapsePanel()
+        backend.reveal(url)
+    }
 }
 
 @MainActor

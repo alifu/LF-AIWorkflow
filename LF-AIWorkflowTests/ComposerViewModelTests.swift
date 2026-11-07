@@ -223,6 +223,14 @@ final class FakePicker: FilePicking {
         #expect(draft?.documents == [file("a.md")])
     }
 
+    @Test func defaultDraftDoesNotUseAWorktree() {
+        let (vm, _, _) = make()
+        vm.setProject(project)
+        vm.prompt = "Do a thing"
+        #expect(vm.useWorktree == false)
+        #expect(vm.makeDraft()?.useWorktree == false)
+    }
+
     @Test func makeDraftIsNilWhenCannotStart() {
         let (vm, _, _) = make()
         #expect(vm.makeDraft() == nil)

@@ -143,7 +143,7 @@ struct PromptComposer: View {
             Toggle("Start at Code", isOn: Bindable(composer).startAtCode)
                 .help("Skip the plan and its approval; the first stage is Code")
             Toggle("Use worktree", isOn: Bindable(composer).useWorktree)
-                .help("Work in a separate git worktree instead of the project folder")
+                .help("Work in a separate git worktree: a full second checkout of the project, so it costs disk space (off by default)")
         }
         .font(theme.bodyFont.font).controlSize(.small)
     }
