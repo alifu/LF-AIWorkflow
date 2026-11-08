@@ -1,0 +1,8 @@
+# comment
+User-agent: *
+Disallow: /
+
+User-agent: LF-AIWorkflow
+Allow: /docs
+Disallow: /docs/secret
+Disallow:

@@ -1,0 +1,44 @@
+Command line invocation:
+    xcodebuild -scheme App build
+
+CompileSwift step 0: processing unit 0 ok
+CompileSwift step 1: processing unit 1 ok
+CompileSwift step 2: processing unit 2 ok
+CompileSwift step 3: processing unit 3 ok
+CompileSwift step 4: processing unit 4 ok
+CompileSwift step 5: processing unit 5 ok
+CompileSwift step 6: processing unit 6 ok
+CompileSwift step 7: processing unit 7 ok
+CompileSwift step 8: processing unit 8 ok
+CompileSwift step 9: processing unit 9 ok
+CompileSwift step 10: processing unit 10 ok
+CompileSwift step 11: processing unit 11 ok
+CompileSwift step 12: processing unit 12 ok
+CompileSwift step 13: processing unit 13 ok
+CompileSwift step 14: processing unit 14 ok
+CompileSwift step 15: processing unit 15 ok
+CompileSwift step 16: processing unit 16 ok
+CompileSwift step 17: processing unit 17 ok
+CompileSwift step 18: processing unit 18 ok
+CompileSwift step 19: processing unit 19 ok
+CompileSwift step 20: processing unit 20 ok
+CompileSwift step 21: processing unit 21 ok
+CompileSwift step 22: processing unit 22 ok
+CompileSwift step 23: processing unit 23 ok
+CompileSwift step 24: processing unit 24 ok
+CompileSwift step 25: processing unit 25 ok
+CompileSwift step 26: processing unit 26 ok
+CompileSwift step 27: processing unit 27 ok
+CompileSwift step 28: processing unit 28 ok
+CompileSwift step 29: processing unit 29 ok
+CompileSwift step 30: processing unit 30 ok
+CompileSwift step 31: processing unit 31 ok
+CompileSwift step 32: processing unit 32 ok
+CompileSwift step 33: processing unit 33 ok
+CompileSwift step 34: processing unit 34 ok
+CompileSwift step 35: processing unit 35 ok
+CompileSwift step 36: processing unit 36 ok
+CompileSwift step 37: processing unit 37 ok
+CompileSwift step 38: processing unit 38 ok
+CompileSwift step 39: processing unit 39 ok
+** BUILD SUCCEEDED **

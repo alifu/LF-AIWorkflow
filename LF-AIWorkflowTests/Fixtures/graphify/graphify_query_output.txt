@@ -1,0 +1,17 @@
+Traversal: BFS depth=2 | Start: ['ClaudeSession'] | 149 nodes found
+
+[!] TRUNCATED: showing 12 of 149 nodes (~400-token budget). The answer may be among the 137 cut nodes — raise the token budget (CLI: --budget) or narrow the query (e.g. context_filter=['call'], or get_node for a specific symbol).
+
+NODE ClaudeSession [src=LF-AIWorkflow/Claude/ClaudeSession.swift loc=L16 community=ClaudeSession]
+NODE NDJSONFramer [src=LF-AIWorkflow/Core/Bridge/NDJSONFramer.swift loc=L10 community=NDJSONFramer]
+NODE ClaudeEvent [src=LF-AIWorkflow/Claude/ClaudeEvent.swift loc=L67 community=ClaudeEvent]
+NODE RingBuffer [src=LF-AIWorkflow/Core/Bridge/RingBuffer.swift loc=L10 community=RingBuffer]
+NODE PTYProcess [src=LF-AIWorkflow/Claude/PTYProcess.swift loc=L15 community=ClaudeSession]
+NODE .start() [src=LF-AIWorkflow/Claude/ClaudeSession.swift loc=L58 community=ClaudeSession]
+NODE .collect() [src=LF-AIWorkflowTests/ClaudeSessionTests.swift loc=L25 community=ClaudeSession]
+NODE TokenUsage [src=LF-AIWorkflow/Claude/ClaudeEvent.swift loc=L6 community=ClaudeEvent]
+NODE .handle() [src=LF-AIWorkflow/Claude/ClaudeSession.swift loc=L96 community=NDJSONFramer]
+NODE .init() [src=LF-AIWorkflow/Claude/ClaudeSession.swift loc=L42 community=ClaudeSession]
+NODE .authAndProviderVariablesSurvive() [src=LF-AIWorkflowTests/ClaudeSessionTests.swift loc=L119 community=ClaudeSession]
+NODE .cancelBeforeStartPreventsSpawn() [src=LF-AIWorkflowTests/ClaudeSessionTests.swift loc=L132 community=ClaudeSession]
+... (truncated — 137 more nodes cut by ~400-token budget. Narrow with context_filter=['call'] or use get_node for a specific symbol)

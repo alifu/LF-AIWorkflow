@@ -1,0 +1,2 @@
+2.1.312 (Claude Code)
+exit text=0 tool_use=0 resume=0 max_turns=1 denied=0 bad_model=1

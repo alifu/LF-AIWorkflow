@@ -1,0 +1,6 @@
+﻿User-agent: *
+this is garbage
+Disallow /nocolon
+Disallow: /ok # trailing
+Disallow: /a%7Eb
+Crawl-delay: abc

@@ -1,0 +1,119 @@
+//
+//  TaskRowView.swift
+//  LF-AIWorkflow
+//
+
+import SwiftUI
+
+/// One task in the list: title, status, stage strip and the actions its state allows.
+struct TaskRowView: View {
+    let row: TaskRowModel
+    let model: any WorkflowControlling
+    let router: PanelRouter
+    @State private var confirmingRemoval = false
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.title).font(theme.headingFont.font).lineLimit(1)
+                    Spacer(minLength: 8)
+                    ElapsedLabel(row: row)
+                    Text(row.tokensText).font(theme.bodyFont.font).foregroundStyle(palette.secondaryText.color).monospacedDigit()
+                }
+                StageChipStrip(chips: row.chips)
+                TaskStatusLine(text: row.statusLine, needsAttention: row.needsAttention, font: theme.bodyFont)
+                if let progress = row.progress {
+                    ThemedProgressBar(value: progress).accessibilityHidden(true)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(row.accessibilityLabel + ". " + row.statusLine)
+            actionBar
+        }
+        .padding(10)
+        .themedSurface(row.needsAttention ? .attentionRow : .row)
+        .contextMenu { contextMenu }
+        .confirmationDialog("Remove this task's worktree?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("Remove worktree", role: .destructive) { Task { await model.removeWorktree(row.id) } }
+        } message: {
+            Text("The folder is deleted, including uncommitted changes. The branch stays.")
+        }
+    }
+
+
+    private var actionBar: some View {
+        HStack(spacing: 6) {
+            if row.actions.contains(.approve) {
+                Button("Review plan") { router.show(task: row.id) }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Review plan for \(row.title)")
+                    .accessibilityHint("Opens the plan approval sheet")
+            }
+            if row.actions.contains(.resume) {
+                Button(row.resumeLabel) { Task { await model.resume(row.id, raising: row.resumeRaiseTokens) } }
+            }
+            if row.actions.contains(.skipTests) {
+                Button("Skip tests") { Task { await model.skipTests(row.id) } }
+            }
+            Button("Details") { router.show(task: row.id) }
+            if row.actions.contains(.cancel) {
+                Button("Cancel", role: .destructive) { Task { await model.cancel(row.id) } }
+                    .accessibilityLabel("Cancel \(row.title)")
+            }
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder private var contextMenu: some View {
+        if row.actions.contains(.cancel) {
+            Button("Cancel task", role: .destructive) { Task { await model.cancel(row.id) } }
+        }
+        if row.actions.contains(.retry) {
+            Button("Retry stage") { Task { await model.retry(row.id) } }
+        }
+        if row.actions.contains(.openWorktree) {
+            Button("Open worktree in Finder") { model.openWorktree(row.id) }
+        }
+        if row.actions.contains(.removeWorktree) {
+            Button("Remove worktree...", role: .destructive) { confirmingRemoval = true }
+        }
+    }
+}
+
+/// Elapsed time; ticks once a second only while the task is running.
+struct ElapsedLabel: View {
+    let row: TaskRowModel
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        if row.isRunning {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                label(TaskFormat.clock(.seconds(max(0, Int(context.date.timeIntervalSince(row.createdAt))))))
+            }
+        } else {
+            label(row.elapsedText)
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text).font(theme.bodyFont.font).foregroundStyle(theme.palette(for: scheme).secondaryText.color).monospacedDigit()
+            .accessibilityHidden(true)
+    }
+}
+
+#if DEBUG
+#Preview {
+    VStack {
+        ForEach(PreviewModel().rows) { TaskRowView(row: $0, model: PreviewModel(), router: PanelRouter()) }
+    }
+    .padding()
+    .frame(width: 520)
+    .background(.black)
+    .environment(\.colorScheme, .dark)
+}
+#endif

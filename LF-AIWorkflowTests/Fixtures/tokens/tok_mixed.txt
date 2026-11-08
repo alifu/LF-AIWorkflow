@@ -1,0 +1,11 @@
+# 日本語と English の混在
+
+今日は天気がいいので、散歩に行きます。この文章は、トークン推定器のテストに使われます。
+中文也包含在内：我们正在测试一个简单的估算器，它应该能处理各种语言。
+Café, naïve, Zürich, Привет, мир! Ünïcödé text has accents.
+Status: ✅ passed, ❌ failed, 🚀 launched, 🎉 done. Price: €12.50, ¥1,200, £9.99.
+
+| name | value |
+|------|-------|
+| alpha | 1 |
+| beta | 22 |

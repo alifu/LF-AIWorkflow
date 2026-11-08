@@ -1,0 +1,78 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project App.xcodeproj -scheme App build
+
+Build settings from command line:
+    SDKROOT = macosx26.0
+
+CompileSwift step 0: processing unit 0 ok
+CompileSwift step 1: processing unit 1 ok
+CompileSwift step 2: processing unit 2 ok
+CompileSwift step 3: processing unit 3 ok
+CompileSwift step 4: processing unit 4 ok
+CompileSwift step 5: processing unit 5 ok
+CompileSwift step 6: processing unit 6 ok
+CompileSwift step 7: processing unit 7 ok
+CompileSwift step 8: processing unit 8 ok
+CompileSwift step 9: processing unit 9 ok
+CompileSwift step 10: processing unit 10 ok
+CompileSwift step 11: processing unit 11 ok
+CompileSwift step 12: processing unit 12 ok
+CompileSwift step 13: processing unit 13 ok
+CompileSwift step 14: processing unit 14 ok
+CompileSwift step 15: processing unit 15 ok
+CompileSwift step 16: processing unit 16 ok
+CompileSwift step 17: processing unit 17 ok
+CompileSwift step 18: processing unit 18 ok
+CompileSwift step 19: processing unit 19 ok
+CompileSwift step 20: processing unit 20 ok
+CompileSwift step 21: processing unit 21 ok
+CompileSwift step 22: processing unit 22 ok
+CompileSwift step 23: processing unit 23 ok
+CompileSwift step 24: processing unit 24 ok
+CompileSwift step 25: processing unit 25 ok
+CompileSwift step 26: processing unit 26 ok
+CompileSwift step 27: processing unit 27 ok
+CompileSwift step 28: processing unit 28 ok
+CompileSwift step 29: processing unit 29 ok
+CompileSwift normal arm64 /Users/dev/App/Sources/Model.swift
+    cd /Users/dev/App
+/Users/dev/App/Sources/Model.swift:42:17: error: cannot find 'undefinedValue' in scope
+        return undefinedValue + 1
+               ^~~~~~~~~~~~~~
+SwiftEmitModule normal arm64 Emitting module for App (in target 'App' from project 'App')
+Ld step 0: processing unit 0 ok
+Ld step 1: processing unit 1 ok
+Ld step 2: processing unit 2 ok
+Ld step 3: processing unit 3 ok
+Ld step 4: processing unit 4 ok
+Ld step 5: processing unit 5 ok
+Ld step 6: processing unit 6 ok
+Ld step 7: processing unit 7 ok
+Ld step 8: processing unit 8 ok
+Ld step 9: processing unit 9 ok
+Ld step 10: processing unit 10 ok
+Ld step 11: processing unit 11 ok
+Ld step 12: processing unit 12 ok
+Ld step 13: processing unit 13 ok
+Ld step 14: processing unit 14 ok
+Ld step 15: processing unit 15 ok
+Ld step 16: processing unit 16 ok
+Ld step 17: processing unit 17 ok
+Ld step 18: processing unit 18 ok
+Ld step 19: processing unit 19 ok
+Ld step 20: processing unit 20 ok
+Ld step 21: processing unit 21 ok
+Ld step 22: processing unit 22 ok
+Ld step 23: processing unit 23 ok
+Ld step 24: processing unit 24 ok
+Ld step 25: processing unit 25 ok
+Ld step 26: processing unit 26 ok
+Ld step 27: processing unit 27 ok
+Ld step 28: processing unit 28 ok
+Ld step 29: processing unit 29 ok
+** BUILD FAILED **
+
+
+The following build commands failed:
+	CompileSwift normal arm64 /Users/dev/App/Sources/Model.swift
+(1 failure)

@@ -1,0 +1,10 @@
+{"type":"brand_new_event","payload":{"x":1}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"he said \"{\\\"type\\\":\\\"result\\\"}\" ok"}],"extra":{"a":[1,2]}},"future_field":true}
+this is plain stderr text, not json
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"no usage here"}]}}
+
+{"type":"system","subtype":"something_new","a":1}
+{"type":"result","subtype":"success","is_error":false}
+{"type":"assistant","message":{"content":[{"type":"text","text":"truncated
+{"no_type_field":true}
+{"type":"user","message":{"role":"user","content":"plain string content"}}

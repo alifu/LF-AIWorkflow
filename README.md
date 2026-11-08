@@ -66,6 +66,12 @@ Research mode reads the Safari tabs you choose, cleans them, and asks Claude to 
 
 Without these, Research mode can still crawl public URLs, but can't read your open Safari tabs. Research files are saved in `~/Documents/LF-AIWorkflow/Research/`.
 
+- **Without Safari access**, the New tab shows a setup sheet with these steps; crawling public URLs still works.
+- **Save a tab for later**: press **⌃⌥⌘C** in Safari. The page text is saved to the research inbox and the notch shows "Saved to inbox (n)". Pages with a password field are never saved.
+- **Crawler limits**: public http(s) pages only (private and local addresses are refused), robots.txt is obeyed, at most one request per second per host, and page count, depth and time are capped per task.
+- **Where data is stored**: one folder per task under `~/Documents/LF-AIWorkflow/Research/` (sources, report, CSV) and the inbox under `inbox/` in the same folder.
+- **What is sent to Claude**: only the cleaned text of the pages you keep after the preview, wrapped as untrusted data. Claude runs with no tools, so it cannot run commands, edit files or browse. Nothing is sent before you press Send.
+
 ### Recommended project setup
 
 - A short `CLAUDE.md` or `AGENTS.md` (about 1 page) in the project root. It is sent on every run, so the app warns when it is missing or too long.
@@ -89,14 +95,14 @@ claude   # log in, then run:
 
 ## Install
 
-Not released yet. When it is:
+Requires macOS 14 (Sonoma) or later.
 
 ```bash
-brew tap alifu/lf-aiworkflow
-brew install --cask lf-aiworkflow
+brew tap alifu/tap
+brew install --cask alifu/tap/lf-aiworkflow
 ```
 
-The app is not notarized by Apple. The cask removes the quarantine flag on install. If macOS still blocks the app:
+The app is ad-hoc signed and NOT notarized by Apple (no Developer ID yet). The cask removes the quarantine flag on install. If macOS still blocks the app:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LF-AIWorkflow.app
@@ -117,3 +123,21 @@ Run the tests:
 ```bash
 xcodebuild -project LF-AIWorkflow.xcodeproj -scheme LF-AIWorkflow -destination 'platform=macOS' test
 ```
+
+Run the full validation gate (Debug unit tests, then the Release-config 10 MB token perf test). It exits non-zero if either step fails or if the perf test is skipped:
+
+```bash
+./scripts/validate.sh
+```
+
+The Debug run skips the perf test on purpose: its wall-clock limit only holds in an optimised build. UI tests are excluded because the UI test runner cannot enable automation from a non-interactive shell. Both runs use private DerivedData folders under `~/Library/Developer/LF-gate-validate/`.
+
+### Token budgets and pauses
+
+Each task has a token budget (Settings > Budgets). Before each Claude stage (Plan, Code, Fix, Review), the app checks whether the spend so far plus the next prompt would pass the limit. If so, the task pauses with "Token budget reached" and asks you once; raising the budget and resuming continues from that stage.
+
+The Test stage spends no tokens, so it never pauses. An over-budget task therefore runs its tests first, then pauses before the next Claude stage: **Fix** if the tests fail, **Review** if they pass.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

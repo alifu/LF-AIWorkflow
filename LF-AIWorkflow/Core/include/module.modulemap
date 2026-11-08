@@ -1,0 +1,4 @@
+module LFCore {
+    umbrella header "LFCore.h"
+    export *
+}
