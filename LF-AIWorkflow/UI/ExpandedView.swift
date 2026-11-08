@@ -116,6 +116,10 @@ struct ExpandedView: View {
             Button("Clear done") { model.clearDone() }
                 .controlSize(.small)
                 .accessibilityHint("Hides finished tasks from the list")
+            Button("Quit") { NSApplication.shared.terminate(nil) }
+                .controlSize(.small)
+                .keyboardShortcut("q", modifiers: .command)
+                .accessibilityHint("Quits LF-AIWorkflow")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
