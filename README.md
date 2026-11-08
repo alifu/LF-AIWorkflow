@@ -1,4 +1,8 @@
-# LF-AIWorkflow
+<p align="center">
+  <img src="docs/images/icon.png" width="128" alt="LF-AIWorkflow app icon">
+</p>
+
+<h1 align="center">LF-AIWorkflow</h1>
 
 A macOS notch app that runs a small, token-saving AI coding workflow on top of the Claude Code CLI:
 
