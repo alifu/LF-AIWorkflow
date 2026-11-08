@@ -45,7 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = NotchPanel()
         let hosting = NSHostingView(rootView: AnyView(ThemedRoot(settings: AppComposition.settings) { StartingView(progress: self.startup) }))
         hosting.sizingOptions = []
-        panel.contentView = hosting
+        // A hosting view as the direct content view lets AppKit animate the window to SwiftUI's fitting size after
+        // a re-expand. A plain container keeps the frame owned by `NotchWindowController`.
+        let container = NSView()
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        panel.contentView = container
         appearanceObserver = AppearanceObserver(settings: AppComposition.settings, targets: [panel, hosting])
         let controller = NotchWindowController(
             screens: SystemScreenProvider(), override: Self.storedOverride(), panel: panel)
