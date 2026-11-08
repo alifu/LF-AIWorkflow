@@ -1,4 +1,8 @@
-# LF-AIWorkflow
+<p align="center">
+  <img src="docs/images/icon.png" width="128" alt="LF-AIWorkflow app icon">
+</p>
+
+<h1 align="center">LF-AIWorkflow</h1>
 
 A macOS notch app that runs a small, token-saving AI coding workflow on top of the Claude Code CLI:
 
@@ -11,6 +15,14 @@ A macOS notch app that runs a small, token-saving AI coding workflow on top of t
 - Work happens in a separate git worktree. The app never pushes or merges.
 
 > Status: in development. The plan is in `.claude/plans/lf-aiworkflow.plan.md`.
+
+---
+
+## Screenshots
+
+| Tasks: the Plan → Code → Test → Fix → Review pipeline | New: Code | New: Research |
+|---|---|---|
+| <img src="docs/images/tasks.png" width="300" alt="Tasks tab showing the stage pipeline"> | <img src="docs/images/new-code.png" width="300" alt="New task, Code mode"> | <img src="docs/images/new-research.png" width="300" alt="New task, Research mode"> |
 
 ---
 
