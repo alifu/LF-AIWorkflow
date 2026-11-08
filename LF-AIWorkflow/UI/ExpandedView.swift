@@ -7,6 +7,7 @@ import SwiftUI
 
 /// The open panel: header (mascot, tabs, count, pin, settings), tab content, footer.
 struct ExpandedView: View {
+    @Environment(\.openSettings) private var openSettings
     let model: any WorkflowControlling
     let hover: HoverController
     let router: PanelRouter
@@ -50,12 +51,19 @@ struct ExpandedView: View {
                 .toggleStyle(.button)
                 .controlSize(.small)
                 .accessibilityLabel("Pin panel open")
-            SettingsLink { Image(systemName: "gearshape") }
+            Button(action: showSettings) { Image(systemName: "gearshape") }
                 .controlSize(.small)
                 .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    /// `SettingsLink` does nothing in a menu-bar-only (LSUIElement) app: the app is not active, so the
+    /// Settings scene never comes forward. Activate first, then use the supported `openSettings` action.
+    private func showSettings() {
+        NSApplication.shared.activate()
+        openSettings()
     }
 
     @ViewBuilder private var content: some View {
