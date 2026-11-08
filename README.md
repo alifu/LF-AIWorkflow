@@ -95,14 +95,14 @@ claude   # log in, then run:
 
 ## Install
 
-Not released yet. When it is:
+Requires macOS 14 (Sonoma) or later.
 
 ```bash
-brew tap alifu/lf-aiworkflow
-brew install --cask lf-aiworkflow
+brew tap alifu/tap
+brew install --cask alifu/tap/lf-aiworkflow
 ```
 
-The app is not notarized by Apple. The cask removes the quarantine flag on install. If macOS still blocks the app:
+The app is ad-hoc signed and NOT notarized by Apple (no Developer ID yet). The cask removes the quarantine flag on install. If macOS still blocks the app:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LF-AIWorkflow.app
