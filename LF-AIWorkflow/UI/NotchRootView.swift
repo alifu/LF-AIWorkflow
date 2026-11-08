@@ -27,7 +27,7 @@ struct NotchRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(HoverTrackingView(onEnter: hover.pointerEntered, onExit: hover.pointerExited))
             .onChange(of: hover.state) { _, next in
-                withAnimation(animation, completionCriteria: .logicallyComplete) {
+                withAnimation(animation(toward: next), completionCriteria: .logicallyComplete) {
                     shown = next
                 } completion: {
                     onStateSettled(next)
@@ -41,7 +41,10 @@ struct NotchRootView: View {
     @ViewBuilder private var content: some View {
         switch shown ?? hover.state {
         case .collapsed:
+            // Fixed to the collapsed size: during a close the window is still full-size, and a view that fills it
+            // would draw the tab stretched over the whole panel area.
             CollapsedView(kind: layout.kind, summary: model.summary, onActivate: hover.toggleFromHotkey)
+                .frame(width: collapsedSize.width, height: collapsedSize.height)
                 .transition(.opacity)
         case .peek:
             if let message = model.peek {
@@ -50,16 +53,36 @@ struct NotchRootView: View {
             }
         case .expanded, .pinned:
             ExpandedView(model: model, hover: hover, router: router, topInset: layout.topInset)
-                .transition(popTransition)
+                .transition(revealTransition)
         }
     }
 
-    private var animation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8)
+    /// No overshoot: the window frame clips anything past its edge, so a bouncy spring reads as a stutter.
+    private func animation(toward state: NotchPanelState) -> Animation {
+        if reduceMotion { return .easeInOut(duration: 0.15) }
+        let opening = state == .expanded || state == .pinned
+        return .smooth(duration: opening ? Self.openDuration : Self.closeDuration)
     }
+
+    private static let openDuration = 0.32
+    private static let closeDuration = 0.24
 
     private var popTransition: AnyTransition {
         reduceMotion ? .opacity : .scale(scale: 0.92, anchor: .top).combined(with: .opacity)
+    }
+
+    /// The open panel grows out of the notch (or the half-circle tab) and shrinks back into it.
+    private var revealTransition: AnyTransition {
+        reduceMotion ? .opacity : .notchReveal(from: collapsedSize, bottomRadius: Self.revealRadius)
+    }
+
+    private static let revealRadius: CGFloat = 20
+
+    private var collapsedSize: CGSize {
+        switch layout.kind {
+        case .notch(let width, let height): CGSize(width: width, height: height)
+        case .none: CGSize(width: NotchGeometry.halfCircleWidth, height: NotchGeometry.defaultMenuBarHeight)
+        }
     }
 
     private func open(_ message: PeekMessage) {
